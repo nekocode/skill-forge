@@ -420,16 +420,3 @@ use is worse than one that works moderately well on all of them.
 ```
 
 `trigger_score` is populated by improve mode. null = not yet run.
-
----
-
-## Installation
-
-```
-/plugin marketplace add nekocode/skill-forge
-/plugin install skill-forge
-```
-
-**First run:** `/scan` → `/create <name>` → `/improve <name>`
-
-**Self-improvement:** `/improve skill-forge`
