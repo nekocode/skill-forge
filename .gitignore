@@ -1,0 +1,12 @@
+/target
+*.local.md
+.claude/
+task_plan.md
+findings.md
+progress.md
+__pycache__/
+.pytest_cache/
+*.pyc
+.coverage
+/docs/
+.ruff_cache/
