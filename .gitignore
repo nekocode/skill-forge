@@ -8,5 +8,4 @@ __pycache__/
 .pytest_cache/
 *.pyc
 .coverage
-/docs/
 .ruff_cache/

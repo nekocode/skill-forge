@@ -1,0 +1,1257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>skill-forge — The meta-skill that forges skills</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,700;12..96,800&family=Martian+Mono:wght@300;400;700&display=swap" rel="stylesheet" />
+  <style>
+    /* ── Reset ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* ── Tokens ── */
+    :root {
+      --bg-deep:      oklch(0.10 0.008 50);
+      --bg-surface:   oklch(0.14 0.008 50);
+      --bg-elevated:  oklch(0.18 0.010 50);
+      --text-primary: oklch(0.90 0.012 55);
+      --text-secondary: oklch(0.58 0.012 50);
+      --text-muted:   oklch(0.48 0.008 50);
+      --forge-hot:    oklch(0.82 0.19 65);
+      --forge-warm:   oklch(0.68 0.19 55);
+      --forge-cool:   oklch(0.48 0.15 35);
+      --forge-cold:   oklch(0.30 0.06 30);
+      --accent:       oklch(0.74 0.17 58);
+      --accent-dim:   oklch(0.52 0.10 55);
+      --border:       oklch(0.22 0.008 50);
+
+      --font-display: 'Bricolage Grotesque', system-ui, sans-serif;
+      --font-mono:    'Martian Mono', 'SF Mono', monospace;
+
+      --space-xs: 4px;
+      --space-sm: 8px;
+      --space-md: 16px;
+      --space-lg: 32px;
+      --space-xl: 64px;
+      --space-2xl: 96px;
+    }
+
+    html {
+      background: var(--bg-deep);
+      color: var(--text-primary);
+      font-family: var(--font-display);
+      font-size: 16px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+      scroll-behavior: smooth;
+    }
+
+    body {
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    a {
+      color: var(--accent);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+    a:hover { color: var(--forge-hot); }
+
+    /* ── Focus ── */
+    :focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    /* ── Nav ── */
+    nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: var(--space-md) clamp(var(--space-lg), 5vw, var(--space-xl));
+      background: oklch(0.10 0.008 50 / 0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .nav-logo {
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: var(--text-primary);
+      letter-spacing: -0.02em;
+    }
+    .nav-logo span { color: var(--accent); }
+
+    .nav-links {
+      display: flex;
+      gap: var(--space-lg);
+      list-style: none;
+    }
+    .nav-links a {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      font-weight: 300;
+      color: var(--text-secondary);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      padding: var(--space-sm) var(--space-sm);
+      min-height: 44px;
+      display: inline-flex;
+      align-items: center;
+    }
+    .nav-links a:hover { color: var(--text-primary); }
+
+    /* ── Hero ── */
+    .hero {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      align-items: center;
+      gap: var(--space-xl);
+      padding: clamp(6rem, 15vh, 10rem) 0 clamp(3rem, 8vh, 6rem);
+    }
+
+    .hero-text {
+      max-width: 560px;
+    }
+
+    .hero-title {
+      font-family: var(--font-display);
+      font-size: clamp(3.5rem, 9vw, 7rem);
+      font-weight: 800;
+      line-height: 0.92;
+      letter-spacing: -0.04em;
+      color: var(--text-primary);
+      opacity: 0;
+      animation: enterLeft 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.2s forwards;
+    }
+
+    .hero-title .accent {
+      color: var(--accent);
+    }
+
+    .hero-subtitle {
+      margin-top: var(--space-lg);
+      font-size: clamp(1rem, 2vw, 1.25rem);
+      font-weight: 400;
+      color: var(--text-secondary);
+      line-height: 1.5;
+      max-width: 38ch;
+      opacity: 0;
+      animation: enterLeft 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.4s forwards;
+    }
+
+    .hero-install {
+      margin-top: clamp(var(--space-lg), 4vh, var(--space-xl));
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-md);
+      padding: var(--space-sm) var(--space-md);
+      min-height: 44px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 0;
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      color: var(--accent);
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      opacity: 0;
+      animation: enterUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.7s forwards;
+    }
+    .hero-install:hover {
+      border-color: var(--accent-dim);
+      background: var(--bg-elevated);
+    }
+    .hero-install .prompt {
+      color: var(--text-muted);
+      user-select: none;
+    }
+    .hero-install .copy-hint {
+      font-size: 0.65rem;
+      color: var(--text-muted);
+      margin-left: var(--space-sm);
+      transition: color 0.2s;
+    }
+    .hero-install:hover .copy-hint { color: var(--text-secondary); }
+
+    /* Forge canvas container */
+    .hero-forge {
+      position: relative;
+      width: 100%;
+      height: clamp(300px, 50vh, 500px);
+      opacity: 0;
+      animation: fadeIn 1s cubic-bezier(0.16, 1, 0.3, 1) 0.5s forwards;
+    }
+
+    .hero-forge canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* ── Content wrapper ── */
+    .content {
+      max-width: 1120px;
+      margin-inline: auto;
+      padding-inline: clamp(var(--space-lg), 5vw, var(--space-xl));
+    }
+
+    /* ── Section base ── */
+    section {
+      padding-block: clamp(var(--space-xl), 10vh, var(--space-2xl));
+    }
+
+    .section-label {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      font-weight: 400;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent-dim);
+      margin-bottom: var(--space-lg);
+    }
+
+    .section-title {
+      font-family: var(--font-display);
+      font-size: clamp(1.8rem, 4vw, 2.8rem);
+      font-weight: 700;
+      line-height: 1.1;
+      letter-spacing: -0.03em;
+      color: var(--text-primary);
+      margin-bottom: clamp(var(--space-lg), 5vh, var(--space-xl));
+    }
+
+    /* ── Gaps section ── */
+    .gap-list {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-lg);
+    }
+
+    .gap-item {
+      display: grid;
+      grid-template-columns: 48px 1fr 1fr;
+      gap: var(--space-md) var(--space-lg);
+      align-items: start;
+      padding-bottom: var(--space-lg);
+      border-bottom: 1px solid var(--border);
+      opacity: 0;
+      transform: translateY(16px);
+      transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1),
+                  transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .gap-item.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .gap-num {
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: var(--accent);
+    }
+
+    .gap-problem {
+      font-size: 1rem;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    .gap-solution {
+      font-size: 1rem;
+      color: var(--text-primary);
+      font-weight: 700;
+      line-height: 1.5;
+    }
+
+    /* ── Lifecycle (The Forge) ── */
+    .lifecycle {
+      overflow: visible;
+    }
+
+    .forge-stages {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 0;
+      position: relative;
+    }
+
+    /* Connecting line behind stages */
+    .forge-stages::before {
+      content: '';
+      position: absolute;
+      top: 40px;
+      left: 10%;
+      right: 10%;
+      height: 2px;
+      background: var(--border);
+      z-index: 0;
+    }
+
+    .forge-stage {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: var(--space-md);
+      position: relative;
+      z-index: 1;
+      opacity: 0;
+      transform: translateY(20px);
+      transition: opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1),
+                  transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .forge-stage.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .stage-icon {
+      width: 80px;
+      height: 80px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+    }
+
+    .stage-shape {
+      transition: background 0.8s cubic-bezier(0.16, 1, 0.3, 1),
+                  box-shadow 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    /* Stage 1: Ore - rough, cold */
+    .stage-ore .stage-shape {
+      width: 36px;
+      height: 36px;
+      background: var(--forge-cold);
+      clip-path: polygon(25% 0%, 75% 0%, 100% 35%, 85% 100%, 15% 100%, 0% 35%);
+    }
+    .stage-ore.lit .stage-shape {
+      background: var(--forge-cool);
+      box-shadow: 0 0 24px oklch(0.48 0.15 35 / 0.5);
+    }
+
+    /* Stage 2: Heat - glowing */
+    .stage-heat .stage-shape {
+      width: 36px;
+      height: 36px;
+      background: var(--forge-cold);
+      clip-path: polygon(25% 0%, 75% 0%, 100% 35%, 85% 100%, 15% 100%, 0% 35%);
+    }
+    .stage-heat.lit .stage-shape {
+      background: var(--forge-warm);
+      box-shadow: 0 0 32px oklch(0.68 0.19 55 / 0.6);
+    }
+
+    /* Stage 3: Strike - hot, being shaped */
+    .stage-strike .stage-shape {
+      width: 40px;
+      height: 30px;
+      background: var(--forge-cold);
+      clip-path: polygon(10% 0%, 90% 0%, 100% 50%, 90% 100%, 10% 100%, 0% 50%);
+    }
+    .stage-strike.lit .stage-shape {
+      background: var(--forge-hot);
+      box-shadow: 0 0 40px oklch(0.82 0.19 65 / 0.7);
+    }
+
+    /* Stage 4: Temper - cooling, refined */
+    .stage-temper .stage-shape {
+      width: 44px;
+      height: 24px;
+      background: var(--forge-cold);
+      clip-path: polygon(5% 0%, 95% 0%, 100% 100%, 0% 100%);
+    }
+    .stage-temper.lit .stage-shape {
+      background: var(--forge-warm);
+      box-shadow: 0 0 28px oklch(0.68 0.19 55 / 0.5);
+    }
+
+    /* Stage 5: Blade - finished, sharp */
+    .stage-blade .stage-shape {
+      width: 48px;
+      height: 16px;
+      background: var(--forge-cold);
+      clip-path: polygon(0% 50%, 8% 0%, 92% 0%, 100% 50%, 92% 100%, 8% 100%);
+    }
+    .stage-blade.lit .stage-shape {
+      background: var(--text-primary);
+      box-shadow: 0 0 20px oklch(0.90 0.012 55 / 0.4);
+    }
+
+    .stage-label {
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      font-weight: 400;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      transition: color 0.5s;
+    }
+    .forge-stage.lit .stage-label { color: var(--text-secondary); }
+
+    .stage-cmd {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--text-muted);
+      transition: color 0.5s;
+    }
+    .forge-stage.lit .stage-cmd { color: var(--accent); }
+
+    .stage-desc {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      text-align: center;
+      max-width: 140px;
+      line-height: 1.4;
+      transition: color 0.5s;
+    }
+    .forge-stage.lit .stage-desc { color: var(--text-secondary); }
+
+    /* ── Commands ── */
+    .terminal {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      overflow: hidden;
+    }
+
+    .terminal-bar {
+      display: flex;
+      align-items: center;
+      gap: var(--space-sm);
+      padding: var(--space-sm) var(--space-md);
+      background: var(--bg-elevated);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .terminal-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--text-muted);
+    }
+    .terminal-dot:nth-child(1) { background: oklch(0.55 0.15 25); }
+    .terminal-dot:nth-child(2) { background: oklch(0.65 0.15 80); }
+    .terminal-dot:nth-child(3) { background: oklch(0.55 0.15 145); }
+
+    .terminal-title {
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      color: var(--text-muted);
+      margin-left: var(--space-sm);
+    }
+
+    .terminal-body {
+      padding: var(--space-lg);
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-lg);
+    }
+
+    .cmd-line {
+      opacity: 0;
+      transform: translateX(-12px);
+      transition: opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1),
+                  transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .cmd-line.visible {
+      opacity: 1;
+      transform: translateX(0);
+    }
+
+    .cmd-prompt {
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      line-height: 1.8;
+    }
+    .cmd-prompt .symbol {
+      color: var(--accent);
+      user-select: none;
+    }
+    .cmd-prompt .command { color: var(--text-primary); }
+    .cmd-prompt .arg { color: var(--forge-warm); }
+
+    .cmd-desc {
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      padding-left: var(--space-md);
+      line-height: 1.5;
+    }
+
+    /* ── How section ── */
+    .how-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--space-lg);
+    }
+
+    .how-item {
+      padding: var(--space-lg);
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      opacity: 0;
+      transform: translateY(16px);
+      transition: opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1),
+                  transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .how-item.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .how-item-label {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      font-weight: 700;
+      color: var(--accent);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: var(--space-sm);
+    }
+
+    .how-item-title {
+      font-weight: 700;
+      font-size: 1.05rem;
+      margin-bottom: var(--space-sm);
+    }
+
+    .how-item-text {
+      font-size: 0.85rem;
+      color: var(--text-secondary);
+      line-height: 1.55;
+      max-width: 40ch;
+    }
+
+    /* ── CTA ── */
+    .cta {
+      text-align: left;
+      padding-bottom: clamp(var(--space-2xl), 15vh, 160px);
+    }
+
+    .cta-title {
+      font-family: var(--font-display);
+      font-size: clamp(2rem, 5vw, 3.5rem);
+      font-weight: 800;
+      line-height: 1;
+      letter-spacing: -0.03em;
+      margin-bottom: var(--space-lg);
+    }
+
+    .cta-install {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-md);
+      padding: var(--space-md) var(--space-lg);
+      background: var(--accent);
+      color: var(--bg-deep);
+      font-family: var(--font-mono);
+      font-size: 0.9rem;
+      font-weight: 700;
+      border: none;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.15s;
+    }
+    .cta-install:hover {
+      background: var(--forge-hot);
+      transform: translateY(-1px);
+    }
+    .cta-install:active { transform: translateY(0); }
+
+    .cta-sub {
+      margin-top: var(--space-md);
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      color: var(--text-muted);
+    }
+
+    /* ── Footer ── */
+    footer {
+      padding: var(--space-lg) clamp(var(--space-lg), 5vw, var(--space-xl));
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      color: var(--text-muted);
+    }
+
+    /* ── Animations ── */
+    @keyframes enterLeft {
+      from { opacity: 0; transform: translateX(-32px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+    @keyframes enterUp {
+      from { opacity: 0; transform: translateY(16px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to   { opacity: 1; }
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 768px) {
+      .hero {
+        grid-template-columns: 1fr;
+        gap: var(--space-lg);
+        min-height: auto;
+        padding-top: clamp(5rem, 12vh, 8rem);
+      }
+      .hero-forge {
+        height: 280px;
+      }
+      .gap-item {
+        grid-template-columns: 40px 1fr;
+      }
+      .gap-solution {
+        grid-column: 2;
+      }
+      .forge-stages {
+        grid-template-columns: 1fr;
+        gap: var(--space-lg);
+      }
+      .forge-stages::before {
+        top: 0;
+        bottom: 0;
+        left: 40px;
+        right: auto;
+        width: 2px;
+        height: auto;
+      }
+      .forge-stage {
+        flex-direction: row;
+        gap: var(--space-md);
+      }
+      .stage-icon { width: 56px; height: 56px; flex-shrink: 0; }
+      .stage-desc { text-align: left; max-width: none; }
+      .how-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .hero-title {
+        font-size: clamp(2.5rem, 12vw, 4rem);
+      }
+    }
+
+    /* ── Reduced motion ── */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+      html { scroll-behavior: auto; }
+      /* Show all reveal elements immediately */
+      [data-reveal],
+      .forge-stage {
+        opacity: 1 !important;
+        transform: none !important;
+      }
+      .hero-title,
+      .hero-subtitle,
+      .hero-install,
+      .hero-forge {
+        opacity: 1 !important;
+        transform: none !important;
+      }
+    }
+
+    /* ── JS fallback: show content if JS disabled ── */
+    noscript + .content [data-reveal],
+    noscript + .content .forge-stage {
+      opacity: 1;
+      transform: none;
+    }
+  </style>
+  <noscript><style>
+    [data-reveal], .forge-stage,
+    .hero-title, .hero-subtitle, .hero-install, .hero-forge {
+      opacity: 1 !important;
+      transform: none !important;
+    }
+  </style></noscript>
+</head>
+<body>
+
+  <!-- ── Nav ── -->
+  <nav>
+    <div class="nav-logo"><span aria-hidden="true">&gt;</span> skill-forge</div>
+    <ul class="nav-links">
+      <li><a href="https://github.com/nekocode/skill-forge">GitHub</a></li>
+    </ul>
+  </nav>
+
+  <!-- ── Hero ── -->
+  <div class="content">
+    <section class="hero">
+      <div class="hero-text">
+        <h1 class="hero-title">SKILL<br><span class="accent">FORGE</span></h1>
+        <p class="hero-subtitle">
+          The meta-skill that forges skills. Auto-discover workflows, create evaluated skills, optimize triggers.
+        </p>
+        <button class="hero-install" id="installBtn" type="button">
+          <span class="prompt" aria-hidden="true">$</span>
+          <span>/plugin install skill-forge</span>
+          <span class="copy-hint" aria-live="polite">click to copy</span>
+        </button>
+      </div>
+      <div class="hero-forge">
+        <canvas id="forgeCanvas" role="img" aria-label="Forge animation: hammer striking a glowing ingot on an anvil with flying sparks"></canvas>
+      </div>
+    </section>
+  </div>
+
+  <main class="content">
+
+  <!-- ── Gaps ── -->
+  <section class="gaps">
+    <div class="section-label">The problem</div>
+    <h2 class="section-title">Three gaps in the skill lifecycle</h2>
+    <div class="gap-list">
+      <div class="gap-item" data-reveal>
+        <span class="gap-num">01</span>
+        <span class="gap-problem">Don't know when to create a skill</span>
+        <span class="gap-solution">Auto-detect complex tasks, proactively ask</span>
+      </div>
+      <div class="gap-item" data-reveal>
+        <span class="gap-num">02</span>
+        <span class="gap-problem">Don't know if a skill is well-written</span>
+        <span class="gap-solution">5-dimension evaluator, threshold before save</span>
+      </div>
+      <div class="gap-item" data-reveal>
+        <span class="gap-num">03</span>
+        <span class="gap-problem">Don't know if it will actually trigger</span>
+        <span class="gap-solution">Eval-driven description optimization</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Lifecycle ── -->
+  <section class="lifecycle">
+    <div class="section-label">The forge</div>
+    <h2 class="section-title">From raw workflow to tempered skill</h2>
+    <div class="forge-stages" id="forgeStages">
+      <div class="forge-stage stage-ore" data-stage="0">
+        <div class="stage-icon"><div class="stage-shape"></div></div>
+        <span class="stage-label">Ore</span>
+        <span class="stage-cmd">/scan</span>
+        <span class="stage-desc">Discover opportunities in your codebase</span>
+      </div>
+      <div class="forge-stage stage-heat" data-stage="1">
+        <div class="stage-icon"><div class="stage-shape"></div></div>
+        <span class="stage-label">Heat</span>
+        <span class="stage-cmd">/create</span>
+        <span class="stage-desc">Research patterns, draft the skill</span>
+      </div>
+      <div class="forge-stage stage-strike" data-stage="2">
+        <div class="stage-icon"><div class="stage-shape"></div></div>
+        <span class="stage-label">Strike</span>
+        <span class="stage-cmd">eval</span>
+        <span class="stage-desc">5-dim scoring, reject below 6/8</span>
+      </div>
+      <div class="forge-stage stage-temper" data-stage="3">
+        <div class="stage-icon"><div class="stage-shape"></div></div>
+        <span class="stage-label">Temper</span>
+        <span class="stage-cmd">/improve</span>
+        <span class="stage-desc">Patch content, optimize triggers</span>
+      </div>
+      <div class="forge-stage stage-blade" data-stage="4">
+        <div class="stage-icon"><div class="stage-shape"></div></div>
+        <span class="stage-label">Blade</span>
+        <span class="stage-cmd">SKILL.md</span>
+        <span class="stage-desc">Production skill, registry tracked</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Commands ── -->
+  <section class="commands">
+    <div class="section-label">Commands</div>
+    <h2 class="section-title">Four verbs, one workflow</h2>
+    <div class="terminal">
+      <div class="terminal-bar">
+        <div class="terminal-dot"></div>
+        <div class="terminal-dot"></div>
+        <div class="terminal-dot"></div>
+        <span class="terminal-title">claude-code</span>
+      </div>
+      <div class="terminal-body">
+        <div class="cmd-line" data-reveal>
+          <div class="cmd-prompt">
+            <span class="symbol">$ </span><span class="command">/scan</span> <span class="arg">[focus]</span>
+          </div>
+          <div class="cmd-desc">Scan project for skill opportunities. Searches community first.</div>
+        </div>
+        <div class="cmd-line" data-reveal>
+          <div class="cmd-prompt">
+            <span class="symbol">$ </span><span class="command">/create</span> <span class="arg">&lt;name&gt;</span>
+          </div>
+          <div class="cmd-desc">Create skill with codebase research + 5-dim evaluation.</div>
+        </div>
+        <div class="cmd-line" data-reveal>
+          <div class="cmd-prompt">
+            <span class="symbol">$ </span><span class="command">/improve</span> <span class="arg">&lt;name&gt;</span>
+          </div>
+          <div class="cmd-desc">Iterate: content patches, trigger optimization, or both.</div>
+        </div>
+        <div class="cmd-line" data-reveal>
+          <div class="cmd-prompt">
+            <span class="symbol">$ </span><span class="command">/list</span>
+          </div>
+          <div class="cmd-desc">Print skill registry — versions, scores, trigger rates.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── How it works ── -->
+  <section class="how">
+    <div class="section-label">Under the hood</div>
+    <h2 class="section-title">Principled, not magical</h2>
+    <div class="how-grid">
+      <div class="how-item" data-reveal>
+        <div class="how-item-label">Dual-file isolation</div>
+        <div class="how-item-title">Injection-proof by design</div>
+        <div class="how-item-text">External content lands in low-trust <code>skill_insights.md</code>. Only validated patterns promote to the high-trust draft that hooks inject.</div>
+      </div>
+      <div class="how-item" data-reveal>
+        <div class="how-item-label">Attention anchoring</div>
+        <div class="how-item-title">Hooks keep the goal in focus</div>
+        <div class="how-item-text">UserPromptSubmit and PreToolUse hooks re-inject the draft header every turn. Context overflows can't erase the mission.</div>
+      </div>
+      <div class="how-item" data-reveal>
+        <div class="how-item-label">Session catchup</div>
+        <div class="how-item-title">Nothing slips through the cracks</div>
+        <div class="how-item-text">Missed a complex workflow yesterday? SessionStart parses previous JSONL, surfaces uncaptured 5+ tool-call tasks.</div>
+      </div>
+      <div class="how-item" data-reveal>
+        <div class="how-item-label">Eval-driven triggers</div>
+        <div class="how-item-title">Description is a separate problem</div>
+        <div class="how-item-text">20-case trigger evaluations, 60/40 train/test split, up to 5 optimization rounds. Your skill fires when it should.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── CTA ── -->
+  <section class="cta">
+    <h2 class="cta-title">Start forging.</h2>
+    <button class="cta-install" id="ctaBtn">/plugin install skill-forge</button>
+    <p class="cta-sub">Then run <code>/scan</code> to discover your first opportunities.</p>
+  </section>
+
+  </main>
+
+  <!-- ── Footer ── -->
+  <footer class="content">
+    <span>skill-forge by nekocode</span>
+    <span>Claude Code plugin</span>
+  </footer>
+
+  <script>
+    /* ── Forge canvas animation ── */
+    class Spark {
+      constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 1.5 + Math.random() * 5;
+        this.vx = Math.cos(angle) * speed * (0.6 + Math.random());
+        this.vy = Math.sin(angle) * speed - Math.random() * 3;
+        this.life = 1;
+        this.decay = 0.008 + Math.random() * 0.018;
+        this.size = 0.8 + Math.random() * 2;
+      }
+      update() {
+        this.vy += 0.12;
+        this.x += this.vx;
+        this.y += this.vy;
+        this.vx *= 0.99;
+        this.life -= this.decay;
+      }
+      draw(ctx) {
+        if (this.life <= 0) return;
+        const l = Math.max(0.3, this.life);
+        const r = Math.floor(255);
+        const g = Math.floor(100 + l * 120);
+        const b = Math.floor(20 + l * 40);
+        ctx.globalAlpha = l * l;
+        ctx.fillStyle = `rgb(${r},${g},${b})`;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.size * l, 0, Math.PI * 2);
+        ctx.fill();
+        /* Glow core for bright sparks */
+        if (l > 0.6) {
+          ctx.globalAlpha = (l - 0.6) * 1.5;
+          ctx.fillStyle = `rgb(255,240,200)`;
+          ctx.beginPath();
+          ctx.arc(this.x, this.y, this.size * l * 0.4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    class Ember {
+      constructor(w, h) {
+        this.reset(w, h, true);
+      }
+      reset(w, h, init) {
+        this.x = w * 0.3 + Math.random() * w * 0.4;
+        this.y = init ? h * 0.3 + Math.random() * h * 0.5 : h + 10;
+        this.vx = (Math.random() - 0.5) * 0.3;
+        this.vy = -(0.3 + Math.random() * 0.5);
+        this.life = 0.6 + Math.random() * 0.4;
+        this.size = 0.5 + Math.random() * 1.5;
+        this.flicker = Math.random() * Math.PI * 2;
+      }
+      update(w, h) {
+        this.x += this.vx + Math.sin(this.flicker) * 0.15;
+        this.y += this.vy;
+        this.flicker += 0.03;
+        this.life -= 0.002;
+        if (this.life <= 0 || this.y < -20) this.reset(w, h, false);
+      }
+      draw(ctx) {
+        const a = this.life * (0.5 + Math.sin(this.flicker) * 0.2);
+        ctx.globalAlpha = Math.max(0, a);
+        ctx.fillStyle = `rgb(255,${120 + Math.floor(this.life * 60)},40)`;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    function initForge() {
+      const canvas = document.getElementById('forgeCanvas');
+      if (!canvas) return;
+
+      /* Respect reduced motion: draw a single static frame */
+      const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      const ctx = canvas.getContext('2d');
+      let w, h, dpr;
+      const sparks = [];
+      const embers = [];
+      let frame = 0;
+      const CYCLE = 180; /* frames per hammer cycle */
+      let isVisible = true;
+
+      function resize() {
+        dpr = window.devicePixelRatio || 1;
+        const rect = canvas.getBoundingClientRect();
+        w = rect.width;
+        h = rect.height;
+        canvas.width = w * dpr;
+        canvas.height = h * dpr;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
+      resize();
+      window.addEventListener('resize', resize);
+
+      /* Seed embers */
+      for (let i = 0; i < 18; i++) embers.push(new Ember(w, h));
+
+      function drawGlow(intensity) {
+        const cx = w * 0.5;
+        const cy = h * 0.68;
+        const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, w * 0.45);
+        grad.addColorStop(0, `rgba(255,120,30,${0.12 + intensity * 0.25})`);
+        grad.addColorStop(0.4, `rgba(255,70,10,${0.04 + intensity * 0.08})`);
+        grad.addColorStop(1, 'transparent');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, w, h);
+      }
+
+      function drawAnvil() {
+        const ax = w * 0.25;
+        const ay = h * 0.72;
+        const aw = w * 0.5;
+        const ah = h * 0.05;
+
+        /* Top surface */
+        ctx.fillStyle = '#1e1a16';
+        ctx.fillRect(ax, ay, aw, ah);
+
+        /* Highlight edge */
+        ctx.fillStyle = '#2a2520';
+        ctx.fillRect(ax, ay, aw, 1.5);
+
+        /* Horn (left) */
+        ctx.beginPath();
+        ctx.moveTo(ax, ay);
+        ctx.lineTo(ax - aw * 0.12, ay + ah * 0.5);
+        ctx.lineTo(ax, ay + ah);
+        ctx.closePath();
+        ctx.fillStyle = '#1a1612';
+        ctx.fill();
+
+        /* Body */
+        ctx.beginPath();
+        ctx.moveTo(ax + aw * 0.15, ay + ah);
+        ctx.lineTo(ax + aw * 0.85, ay + ah);
+        ctx.lineTo(ax + aw * 0.78, ay + ah * 5);
+        ctx.lineTo(ax + aw * 0.22, ay + ah * 5);
+        ctx.closePath();
+        ctx.fillStyle = '#161310';
+        ctx.fill();
+      }
+
+      function drawIngot(brightness) {
+        const ix = w * 0.4;
+        const iy = h * 0.72 - h * 0.065;
+        const iw = w * 0.2;
+        const ih = h * 0.065;
+        const b = brightness;
+
+        ctx.save();
+        ctx.shadowColor = `rgba(255,${Math.floor(80 + b * 100)},20,${0.4 + b * 0.5})`;
+        ctx.shadowBlur = 15 + b * 25;
+
+        const r = 255;
+        const g = Math.floor(80 + b * 120);
+        const bl = Math.floor(15 + b * 45);
+        ctx.fillStyle = `rgb(${r},${g},${bl})`;
+        ctx.fillRect(ix, iy, iw, ih);
+
+        /* Hot center streak */
+        if (b > 0.3) {
+          ctx.globalAlpha = (b - 0.3) * 1.2;
+          ctx.fillStyle = `rgb(255,${Math.floor(200 + b * 55)},${Math.floor(100 + b * 80)})`;
+          ctx.fillRect(ix + iw * 0.1, iy + ih * 0.2, iw * 0.8, ih * 0.6);
+          ctx.globalAlpha = 1;
+        }
+
+        ctx.restore();
+      }
+
+      function drawHammer(yOffset, rotation) {
+        const hx = w * 0.5;
+        const hy = h * 0.72 - h * 0.065 - 50 + yOffset;
+        ctx.save();
+        ctx.translate(hx, hy);
+        ctx.rotate(rotation * Math.PI / 180);
+
+        /* Handle */
+        ctx.fillStyle = '#302a24';
+        ctx.fillRect(-3, -80, 6, 80);
+
+        /* Head */
+        ctx.fillStyle = '#252018';
+        ctx.fillRect(-18, -8, 36, 20);
+
+        /* Head highlight */
+        ctx.fillStyle = '#3a3328';
+        ctx.fillRect(-18, -8, 36, 2);
+
+        ctx.restore();
+      }
+
+      function getHammerState(t) {
+        /* t: 0-1 cycle progress */
+        let y = 0, rot = 0;
+        if (t < 0.45) {
+          /* Resting */
+          y = 0; rot = -3;
+        } else if (t < 0.58) {
+          /* Wind up */
+          const p = (t - 0.45) / 0.13;
+          const ease = p * p;
+          y = -35 * ease;
+          rot = -3 - 18 * ease;
+        } else if (t < 0.65) {
+          /* Strike down (fast) */
+          const p = (t - 0.58) / 0.07;
+          const ease = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
+          y = -35 + 95 * ease;
+          rot = -21 + 21 * ease;
+        } else if (t < 0.72) {
+          /* At rest post-strike */
+          const p = (t - 0.65) / 0.07;
+          y = 60 - 20 * p;
+          rot = 0;
+        } else {
+          /* Rise back */
+          const p = (t - 0.72) / 0.28;
+          const ease = 1 - Math.pow(1 - p, 3);
+          y = 40 * (1 - ease);
+          rot = -3 * ease;
+        }
+        return { y, rot };
+      }
+
+      function emitSparks() {
+        const sx = w * 0.5;
+        const sy = h * 0.72 - h * 0.03;
+        for (let i = 0; i < 45; i++) {
+          sparks.push(new Spark(sx + (Math.random() - 0.5) * w * 0.08, sy));
+        }
+      }
+
+      let struck = false;
+
+      function loop() {
+        if (!isVisible) return;
+
+        frame++;
+        const phase = frame % CYCLE;
+        const t = phase / CYCLE;
+
+        ctx.clearRect(0, 0, w, h);
+
+        /* Strike detection */
+        const isStrike = t > 0.63 && t < 0.72;
+        if (t > 0.64 && t < 0.66 && !struck) {
+          emitSparks();
+          struck = true;
+        }
+        if (t < 0.5) struck = false;
+
+        /* Ingot brightness */
+        let brightness;
+        if (isStrike) {
+          brightness = 0.7 + 0.3 * Math.max(0, 1 - (t - 0.64) / 0.08);
+        } else {
+          brightness = 0.35 + Math.sin(frame * 0.02) * 0.08;
+        }
+
+        drawGlow(isStrike ? 0.6 : 0.15 + Math.sin(frame * 0.015) * 0.05);
+        drawAnvil();
+        drawIngot(brightness);
+
+        const hs = getHammerState(t);
+        drawHammer(hs.y, hs.rot);
+
+        /* Sparks */
+        for (let i = sparks.length - 1; i >= 0; i--) {
+          sparks[i].update();
+          if (sparks[i].life <= 0) { sparks.splice(i, 1); continue; }
+          sparks[i].draw(ctx);
+        }
+
+        /* Embers */
+        for (const e of embers) {
+          e.update(w, h);
+          e.draw(ctx);
+        }
+
+        requestAnimationFrame(loop);
+      }
+
+      /* Pause canvas when offscreen */
+      const visObserver = new IntersectionObserver((entries) => {
+        isVisible = entries[0].isIntersecting;
+        if (isVisible && !prefersReduced) requestAnimationFrame(loop);
+      }, { threshold: 0 });
+      visObserver.observe(canvas);
+
+      if (prefersReduced) {
+        /* Draw one static frame: anvil + warm ingot, no animation */
+        resize();
+        drawGlow(0.2);
+        drawAnvil();
+        drawIngot(0.5);
+        return;
+      }
+
+      loop();
+    }
+
+    /* ── Scroll reveal ── */
+    function initReveal() {
+      const items = document.querySelectorAll('[data-reveal]');
+      const observer = new IntersectionObserver((entries) => {
+        entries.forEach((entry, i) => {
+          if (entry.isIntersecting) {
+            /* Stagger siblings */
+            const parent = entry.target.parentElement;
+            const siblings = parent.querySelectorAll('[data-reveal]');
+            let idx = 0;
+            siblings.forEach((s, j) => { if (s === entry.target) idx = j; });
+            setTimeout(() => {
+              entry.target.classList.add('visible');
+            }, idx * 120);
+            observer.unobserve(entry.target);
+          }
+        });
+      }, { threshold: 0.15, rootMargin: '0px 0px -40px 0px' });
+
+      items.forEach(item => observer.observe(item));
+    }
+
+    /* ── Forge lifecycle stage animation ── */
+    function initStages() {
+      const container = document.getElementById('forgeStages');
+      if (!container) return;
+      const stages = container.querySelectorAll('.forge-stage');
+      let animated = false;
+
+      const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting && !animated) {
+            animated = true;
+            stages.forEach((stage, i) => {
+              setTimeout(() => {
+                stage.classList.add('visible');
+              }, i * 200);
+              setTimeout(() => {
+                stage.classList.add('lit');
+              }, i * 200 + 400);
+            });
+            observer.unobserve(entry.target);
+          }
+        });
+      }, { threshold: 0.2 });
+
+      observer.observe(container);
+    }
+
+    /* ── Copy to clipboard ── */
+    function initCopy() {
+      const btns = [
+        document.getElementById('installBtn'),
+        document.getElementById('ctaBtn')
+      ];
+      btns.forEach(btn => {
+        if (!btn) return;
+        btn.addEventListener('click', () => {
+          navigator.clipboard.writeText('/plugin install skill-forge').then(() => {
+            const hint = btn.querySelector('.copy-hint');
+            if (hint) {
+              hint.textContent = 'copied!';
+              setTimeout(() => { hint.textContent = 'click to copy'; }, 2000);
+            } else {
+              const orig = btn.textContent;
+              btn.textContent = 'Copied!';
+              setTimeout(() => { btn.textContent = orig; }, 2000);
+            }
+          });
+        });
+      });
+    }
+
+    /* ── Init ── */
+    document.addEventListener('DOMContentLoaded', () => {
+      initForge();
+      initReveal();
+      initStages();
+      initCopy();
+    });
+  </script>
+</body>
+</html>
