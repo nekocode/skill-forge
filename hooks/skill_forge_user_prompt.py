@@ -41,7 +41,7 @@ def check_prompt(prompt: str) -> dict:
         return {
             "systemMessage": (
                 "[skill-forge] User appears to want a skill created from this workflow. "
-                "When the task completes, proactively offer to run /skill-forge create <n>."
+                "When the task completes, proactively offer to run /skill-forge create <prompt>."
             )
         }
     return {}

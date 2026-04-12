@@ -118,7 +118,6 @@ class TestBuildMessage:
         msg = build_message("r", "s")
         assert "[y] Create skill" in msg
         assert "[n] Skip" in msg
-        assert "[rename: ___]" in msg
         assert "If user says yes" in msg
         assert "If user says no" in msg
 

@@ -25,9 +25,9 @@ Claude Code skills solve "how to codify workflows into reusable slash commands."
 
 | Command | What it does |
 |---------|-------------|
-| `/scan [focus]` | Scan project for skill opportunities (searches community first) |
-| `/create <name>` | Create a new skill with codebase research + evaluation |
-| `/improve <name>` | Iterate existing skill — content fixes, trigger optimization, or both |
+| `/scan [prompt]` | Scan project for skill opportunities. Optional prompt as focus hint |
+| `/create <prompt>` | Create a new skill from prompt. Name auto-derived |
+| `/improve <prompt>` | Iterate existing skill from prompt. Target matched from registry |
 | `/list` | Print skill registry with versions, scores, trigger rates |
 
 **Auto mode**: After complex tasks (5+ tool calls, error recovery, user corrections), the Stop hook detects the pattern and offers to create a skill — no manual invocation needed.
@@ -39,7 +39,6 @@ Claude Code skills solve "how to codify workflows into reusable slash commands."
 1. **Hermes Agent** — Autonomous creation with concrete trigger conditions; patch over rewrite
 2. **planning-with-files** — File system as persistent working memory (context window = RAM, files = disk)
 3. **Anthropic skill-creator** — Eval-driven quality: description is a separate optimization problem, 20-case trigger evals, explain *why* not just *what*
-4. **Vercel find-skills** — Search community (agentskills.io / skills.sh) before reinventing
 
 ### Dual-File Security Model
 
@@ -65,7 +64,7 @@ External content (grep/glob/read output) goes to `skill_insights.md` (low trust,
 ```
 Complex task completed
   -> Stop hook / manual invocation
-  -> scan (community search gate) -> create (draft -> research -> SKILL.md -> eval >= 6/8)
+  -> scan -> create (draft -> research -> SKILL.md -> eval >= 6/8)
   -> .claude/skills/<name>/SKILL.md
   -> improve (diagnose -> content patch / trigger eval loop -> changelog + version bump)
   -> repeat after real usage
@@ -97,7 +96,6 @@ Minimum score to save: **6/8**.
 | Feature | Hand-written SKILL.md | Anthropic skill-creator | skill-forge |
 |---------|----------------------|------------------------|-------------|
 | Auto-discover opportunities | - | - | scan |
-| Community skill search | - | - | scan |
 | Content quality evaluation | - | eval viewer | 5-dim evaluator |
 | Description trigger optimization | - | run_loop.py | improve |
 | Persistent working memory | - | - | draft/insights files |

@@ -56,9 +56,9 @@ def build_message(reason: str, summary: str) -> str:
         "",
         "Ask the user:",
         "  'That looked like a reusable workflow. Should I create a skill for it?'",
-        "  Options to present: [y] Create skill  [n] Skip  [rename: ___] Use a different name",
+        "  Options to present: [y] Create skill  [n] Skip",
         "",
-        "If user says yes or provides a name → run /skill-forge create <name>.",
+        "If user says yes → run /skill-forge create <prompt describing the workflow>.",
         "If user says no → reset the counter silently, do not mention skill-forge again.",
     ]
     return "\n".join(lines)

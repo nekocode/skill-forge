@@ -72,7 +72,7 @@ def check_tool_calls(state_path: Path) -> str | None:
 
     return (
         f"[skill-forge] Complex workflow detected ({tool_calls} tool calls).\n"
-        "Consider: /skill-forge create <name> to capture this pattern."
+        "Consider: /skill-forge create <prompt> to capture this pattern."
     )
 
 

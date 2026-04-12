@@ -161,7 +161,7 @@ def format_report(tasks: list[dict]) -> str:
         lines.append(f"  {index}. {total} tool calls: {tool_summary}")
         if task["summary"]:
             lines.append(f"     Summary: {task['summary']}")
-        lines.append("     => /skill-forge create <name>\n")
+        lines.append("     => /skill-forge create <prompt>\n")
     return "\n".join(lines)
 
 

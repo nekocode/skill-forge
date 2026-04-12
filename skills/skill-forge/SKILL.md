@@ -45,8 +45,7 @@ hooks:
 
 A meta-skill that creates and evolves other skills. Uses persistent markdown files as
 working memory (the planning-with-files pattern), an eval-driven iteration loop
-(Anthropic's skill-creator pattern), and a "find before build" gate (Vercel's
-find-skills pattern).
+(Anthropic's skill-creator pattern).
 
 Two files separate concerns:
 - `skill_draft.md` — current skill being written (HIGH TRUST, re-read by hooks)
@@ -72,9 +71,9 @@ Then note project conventions from CLAUDE.md.
 
 Parse `$ARGUMENTS`:
 - Empty / no args → **auto mode**
-- `scan [focus]` → **scan mode** (includes community search)
-- `create <n> ` → **create mode**
-- `improve <n>` → **improve mode** (content + triggering)
+- `scan [prompt]` → **scan mode**
+- `create <prompt>` → **create mode** (required)
+- `improve <prompt>` → **improve mode** (required)
 - `list` → print registry as table
 
 ---
@@ -82,28 +81,13 @@ Parse `$ARGUMENTS`:
 ## Scan mode
 
 Goal: surface 3–5 high-value skill opportunities from the codebase.
-
-### Step 0: community search gate
-Before proposing any skill, search community registries to avoid reinventing the wheel.
-
-Check in this order — stop and recommend if a good match is found:
-
-1. Search agentskills.io and skills.sh leaderboard via WebSearch.
-2. Quality gates before recommending:
-   - Prefer 1,000+ installs; treat anything under 100 with skepticism
-   - Official sources (`anthropics`, `vercel-labs`, `microsoft`) are more trustworthy
-   - Check source repo stars — under 100 stars warrants a caution note
-3. If a good match exists: present it with name, install count, source, and install command.
-   Ask user whether to install it or proceed with building their own.
-4. If nothing found: continue to Step 1.
-
-If `scan` is called with a specific `[focus]` argument, use it as the search query.
-If no argument, derive query from the most obvious pattern found in Step 1.
+`$ARGUMENTS` is an optional free-form prompt used as focus hint (area, keyword, concern).
 
 ### Step 1: map structure
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/skill-forge/scripts/scan_structure.py"
 ```
+If a focus prompt is given, prioritize that area during pattern discovery.
 
 ### Step 2: discover patterns (2-scan rule)
 After every 2 file reads, write findings to `skill_insights.md` before continuing.
@@ -126,7 +110,6 @@ Output format:
 1. <n>  [complexity: low|med|high]
    Why: <one sentence — what pain does this solve?>
    Trigger: "Use when <specific, multi-step scenario>"
-   Community: <"none found" or "similar: <name> (Nk installs)">
 ```
 
 Ask: "Which should I build first? (number, range, or 'all')"
@@ -135,11 +118,14 @@ Ask: "Which should I build first? (number, range, or 'all')"
 
 ## Create mode
 
-Goal: draft a high-quality SKILL.md for the named capability.
+Goal: draft a high-quality SKILL.md from a free-form prompt.
+
+`$ARGUMENTS` describes what the skill should do. Derive a short kebab-case skill name
+from the prompt automatically (e.g. "translate i18n JSON files" → `translate-i18n`).
 
 ### Step 1: initialize the draft (attention anchor)
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/skill-forge/scripts/init_draft.py" "<skill-name>" "<what this skill does and why>"
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/skill-forge/scripts/init_draft.py" "<derived-name>" "<$ARGUMENTS>"
 ```
 From here, the PreToolUse hook re-reads this before every tool call.
 
@@ -219,9 +205,12 @@ See **Skill evaluator** section. Write to disk only on pass ≥ 6.
 Goal: iterate an existing skill — diagnose whether the issue is content, triggering,
 or both, then fix accordingly.
 
+`$ARGUMENTS` describes what to improve. Identify the target skill from the prompt
+by matching against the registry (name, description, or intent). If ambiguous, ask.
+
 ### Step 1: initialize draft from existing skill
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/skill-forge/scripts/init_improve.py" "<name>"
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/skill-forge/scripts/init_improve.py" "<matched-name>"
 ```
 
 ### Step 2: diagnose (content vs triggering vs both)
