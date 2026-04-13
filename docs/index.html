@@ -706,7 +706,7 @@
         </p>
         <button class="hero-install" id="installBtn" type="button">
           <span class="prompt" aria-hidden="true">$</span>
-          <span>/plugin install skill-forge</span>
+          <span>npx skill-forge install</span>
           <span class="copy-hint" aria-live="polite">click to copy</span>
         </button>
       </div>
@@ -850,7 +850,7 @@
   <!-- ── CTA ── -->
   <section class="cta">
     <h2 class="cta-title">Start forging.</h2>
-    <button class="cta-install" id="ctaBtn">/plugin install skill-forge</button>
+    <button class="cta-install" id="ctaBtn">npx skill-forge install</button>
     <p class="cta-sub">Then run <code>/scan</code> to discover your first opportunities.</p>
   </section>
 
@@ -1230,7 +1230,7 @@
       btns.forEach(btn => {
         if (!btn) return;
         btn.addEventListener('click', () => {
-          navigator.clipboard.writeText('/plugin install skill-forge').then(() => {
+          navigator.clipboard.writeText('npx skill-forge install').then(() => {
             const hint = btn.querySelector('.copy-hint');
             if (hint) {
               hint.textContent = 'copied!';
