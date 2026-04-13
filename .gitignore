@@ -9,3 +9,7 @@ __pycache__/
 *.pyc
 .coverage
 .ruff_cache/
+
+# Node CLI
+cli/dist/
+cli/node_modules/

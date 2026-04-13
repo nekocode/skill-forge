@@ -1,0 +1,39 @@
+{
+  "name": "skill-forge",
+  "version": "0.2.0",
+  "description": "CLI for skill-forge — install plugins, manage skill registry, diagnose environments.",
+  "type": "module",
+  "bin": {
+    "skill-forge": "./dist/main.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc --noEmit",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "dist/"
+  ],
+  "keywords": [
+    "claude-code",
+    "skill-forge",
+    "plugin",
+    "cli"
+  ],
+  "author": "nekocode",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nekocode/skill-forge"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "typescript": "^5.4.0",
+    "vitest": "^3.2.0"
+  }
+}

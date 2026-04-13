@@ -16,10 +16,21 @@ Claude Code skills solve "how to codify workflows into reusable slash commands."
 
 ## Install
 
+**Via CLI (recommended):**
+
+```bash
+npm install -g skill-forge
+skill-forge install
+```
+
+**Or manually in Claude Code:**
+
 ```
 /plugin marketplace add nekocode/skill-forge
 /plugin install skill-forge
 ```
+
+Run `skill-forge doctor` to verify your environment.
 
 ## Commands
 
@@ -90,6 +101,24 @@ Minimum score to save: **6/8**.
 1. **Complex scenarios, not simple verbs** — "Use when adding a new REST endpoint that requires route registration, Zod schema, test file, and index.ts update" not "Generate API endpoints"
 2. **Pushy coverage** — Cover cases where users won't name the skill explicitly
 3. **Do NOT use when** — Prevent trigger overlap with related skills
+
+## CLI
+
+The `skill-forge` CLI provides terminal-based plugin management without entering a Claude Code session.
+
+```bash
+npm install -g skill-forge
+```
+
+| Command | What it does |
+|---------|-------------|
+| `skill-forge install` | Install plugin via `claude` CLI (marketplace add + install) |
+| `skill-forge uninstall` | Uninstall plugin |
+| `skill-forge list` | Print skill registry for current project |
+| `skill-forge registry clean` | Remove orphaned registry entries |
+| `skill-forge doctor` | Diagnose environment (claude CLI, plugin, Python, project structure) |
+| `skill-forge init` | Initialize `.claude/skills/` with empty registry |
+| `skill-forge upgrade` | Upgrade CLI to latest version |
 
 ## Comparison
 
