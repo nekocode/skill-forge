@@ -39,7 +39,6 @@ skill-forge install
 | `/scan [prompt]` | 扫描项目发现 skill 机会。可选 prompt 作为聚焦提示 |
 | `/create <prompt>` | 从 prompt 创建新 skill，name 自动推导 |
 | `/improve <prompt>` | 从 prompt 迭代 skill，目标从 registry 匹配 |
-| `/list` | 打印 skill 注册表（版本、分数、触发率） |
 
 **Auto 模式**：完成复杂任务（5+ 工具调用、错误恢复、用户纠正）后，Stop hook 自动检测并提议创建 skill，无需手动调用。
 

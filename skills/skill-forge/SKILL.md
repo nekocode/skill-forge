@@ -74,7 +74,6 @@ Parse `$ARGUMENTS`:
 - `scan [prompt]` → **scan mode**
 - `create <prompt>` → **create mode** (required)
 - `improve <prompt>` → **improve mode** (required)
-- `list` → print registry as table
 
 ---
 
