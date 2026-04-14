@@ -11,7 +11,7 @@ Claude Code skills solve "how to codify workflows into reusable slash commands."
 | Gap | skill-forge's Answer |
 |-----|---------------------|
 | Don't know when to create a skill | Auto-detects complex tasks, proactively asks |
-| Don't know if a skill is well-written | Built-in 5-dimension evaluator, won't save below threshold |
+| Don't know if a skill is well-written | Built-in 4-dimension evaluator, won't save below threshold |
 | Don't know if a skill will actually trigger | Dedicated description optimization phase, eval-driven |
 
 ## Install
@@ -125,7 +125,7 @@ npm install -g @nekocode/skill-forge
 | Feature | Hand-written SKILL.md | Anthropic skill-creator | skill-forge |
 |---------|----------------------|------------------------|-------------|
 | Auto-discover opportunities | - | - | scan |
-| Content quality evaluation | - | eval viewer | 5-dim evaluator |
+| Content quality evaluation | - | eval viewer | 4-dim evaluator |
 | Description trigger optimization | - | run_loop.py | improve |
 | Persistent working memory | - | - | draft/insights files |
 | Cross-session memory | - | - | catchup.py |
