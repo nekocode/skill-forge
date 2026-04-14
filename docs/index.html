@@ -152,9 +152,11 @@
 
     .hero-install {
       margin-top: clamp(var(--space-lg), 4vh, var(--space-xl));
-      display: inline-flex;
+      display: flex;
       align-items: center;
+      width: fit-content;
       gap: var(--space-md);
+      text-align: left;
       padding: var(--space-sm) var(--space-md);
       min-height: 44px;
       background: var(--bg-surface);
@@ -550,9 +552,11 @@
     }
 
     .cta-install {
-      display: inline-flex;
+      display: flex;
       align-items: center;
+      width: fit-content;
       gap: var(--space-md);
+      text-align: left;
       padding: var(--space-md) var(--space-lg);
       background: var(--accent);
       color: var(--bg-deep);
@@ -706,7 +710,7 @@
         </p>
         <button class="hero-install" id="installBtn" type="button">
           <span class="prompt" aria-hidden="true">$</span>
-          <span>npx @nekocode/skill-forge install</span>
+          <span>npm install -g @nekocode/skill-forge && skill-forge install</span>
           <span class="copy-hint" aria-live="polite">click to copy</span>
         </button>
       </div>
@@ -844,7 +848,7 @@
   <!-- ── CTA ── -->
   <section class="cta">
     <h2 class="cta-title">Start forging.</h2>
-    <button class="cta-install" id="ctaBtn">npx @nekocode/skill-forge install</button>
+    <button class="cta-install" id="ctaBtn">npm install -g @nekocode/skill-forge && skill-forge install</button>
     <p class="cta-sub">Then run <code>/scan</code> to discover your first opportunities.</p>
   </section>
 
@@ -1224,7 +1228,7 @@
       btns.forEach(btn => {
         if (!btn) return;
         btn.addEventListener('click', () => {
-          navigator.clipboard.writeText('npx @nekocode/skill-forge install').then(() => {
+          navigator.clipboard.writeText('npm install -g @nekocode/skill-forge && skill-forge install').then(() => {
             const hint = btn.querySelector('.copy-hint');
             if (hint) {
               hint.textContent = 'copied!';
