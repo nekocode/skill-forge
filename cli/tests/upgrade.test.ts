@@ -14,13 +14,13 @@ describe("upgrade command", () => {
     vi.clearAllMocks();
   });
 
-  it("runs npm update -g skill-forge", () => {
+  it("runs npm update -g @nekocode/skill-forge", () => {
     mockExecSync.mockReturnValue("");
 
     run();
 
     expect(mockExecSync).toHaveBeenCalledWith(
-      "npm update -g skill-forge",
+      "npm update -g @nekocode/skill-forge",
       expect.objectContaining({ stdio: "inherit" }),
     );
   });
