@@ -3,6 +3,11 @@
 Iteratively evaluate skill description trigger accuracy via claude --print subprocess,
 train/test split to prevent overfitting, improve until optimal.
 Result JSON to stdout, progress to stderr.
+
+DSPy-inspired improvements:
+- Structured failure analysis (FP/FN classification with directional improvement prompts)
+- Context-rich evaluation prompts (undertrigger bias, complex-task-only semantics)
+- Per-round state persistence (opt_state.json: round history, convergence detection)
 """
 
 from __future__ import annotations
@@ -11,10 +16,52 @@ import argparse
 import json
 import random
 import sys
+import time
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 # shared module from same directory
-from shared import parse_frontmatter, run_subprocess
+from shared import log_stderr as _log, parse_frontmatter, run_subprocess
+
+# ── prompt templates (optimized via self_evolve.py dev tool) ──
+# Developer runs self_evolve.py to find better variants, then updates these constants.
+# Placeholders: {description}, {query} are filled at call site.
+
+EVALUATE_TEMPLATE = (
+    "You are judging whether a Claude Code skill should activate for a user query.\n\n"
+    "Key rules:\n"
+    "- Skills ONLY activate for multi-step workflows (3+ coordinated actions).\n"
+    "- Simple tasks (read a file, fix a typo, explain code) NEVER trigger skills.\n"
+    "- Match the INTENT, not just keywords — 'create a route' is simple, "
+    "'set up a new endpoint with tests, validation, and route registration' is a skill.\n"
+    "- When uncertain, answer NO. Undertriggering is safer than overtriggering.\n\n"
+    "Skill description:\n{description}\n\n"
+    "User query:\n{query}\n\n"
+    "Does this query require the multi-step workflow described by the skill? "
+    "Answer only YES or NO."
+)
+
+IMPROVE_FN_GUIDANCE = (
+    "Fix: the description failed to match these queries. Analyze what they have in common "
+    "and add trigger patterns that capture that shared intent. Strategies:\n"
+    "- Add 'Even if the user just says X, use this skill when they likely need Y' for "
+    "cases where users understate their needs.\n"
+    "- Name specific artifacts or actions from the missed queries (file types, commands, "
+    "tools) so the description covers real phrasing, not just abstract concepts.\n"
+    "- Front-load the most distinctive trigger keywords — Claude may truncate from the end."
+)
+
+IMPROVE_FP_GUIDANCE = (
+    "Fix: these queries triggered the skill but should not have. Identify what made "
+    "the description too broad. Strategies:\n"
+    "- Add a 'Do NOT use when' clause listing the specific tasks that were false positives "
+    "(e.g., 'Do NOT use for simple file reads, single-step edits, or code explanations').\n"
+    "- Replace vague verbs ('manage', 'handle', 'work with') with precise multi-step "
+    "scenarios that only match when the full workflow is needed.\n"
+    "- If the FP queries share a keyword with the description, qualify that keyword "
+    "with a condition (e.g., 'deploy' → 'deploy with rollback and health checks')."
+)
+
 
 # ── data loading ─────────────────────────────────────
 
@@ -33,7 +80,7 @@ def load_skill(skill_path: Path) -> tuple[str, str]:
 
     try:
         content = skill_path.read_text()
-    except OSError:
+    except OSError:  # pragma: no cover — requires OS-level permission denial after is_file() passes
         return ("", "")
 
     fm = parse_frontmatter(content)
@@ -88,9 +135,89 @@ def split_train_test(
 def call_claude(prompt: str) -> str:
     """Call claude --print subprocess, return stdout.
 
-    Timeout/file not found/OS error returns empty string.
+    Single retry with 2s backoff on transient failure (timeout, empty response).
+    Final failure returns empty string.
     """
-    return run_subprocess(["claude", "--print", "-p", prompt], timeout=30)
+    cmd = ["claude", "--model", "claude-sonnet-4-6", "--print", "-p", prompt]
+    result = run_subprocess(cmd, timeout=60)
+    if result:
+        return result
+    # single retry — claude --print intermittently times out on complex prompts
+    time.sleep(2)
+    return run_subprocess(cmd, timeout=60)
+
+
+# ── DSPy-inspired data structures ───────────────────
+
+
+@dataclass
+class RoundRecord:
+    """Per-round optimization metrics for state persistence."""
+
+    round: int
+    description: str
+    train_score: float
+    test_score: float
+    false_positive_count: int
+    false_negative_count: int
+
+
+@dataclass
+class OptState:
+    """Persistent optimization state across runs."""
+
+    skill_name: str
+    best_score: float
+    best_description: str
+    current_round: int
+    converged: bool
+    rounds: list[RoundRecord]
+
+
+def load_opt_state(path: Path) -> OptState | None:
+    """Load opt state from JSON. Missing/corrupt/schema-mismatch returns None.
+
+    Not called from main() — provided for external callers (SKILL.md improve mode
+    inspect/resume, CLI status command). Optimizer always starts fresh per run.
+    """
+    try:
+        data = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+
+    if not isinstance(data, dict) or "skill_name" not in data:
+        return None
+
+    try:
+        rounds = [RoundRecord(**r) for r in data.get("rounds", [])]
+        return OptState(
+            skill_name=data["skill_name"],
+            best_score=data["best_score"],
+            best_description=data["best_description"],
+            current_round=data["current_round"],
+            converged=data["converged"],
+            rounds=rounds,
+        )
+    except (KeyError, TypeError):
+        return None
+
+
+def save_opt_state(state: OptState, path: Path) -> None:
+    """Persist opt state. Auto-creates parent directory."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(asdict(state), indent=2))
+    _log(f"  State saved: round={state.current_round} best={state.best_score:.2f} path={path}")
+
+
+def classify_failures(failures: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Split failures into (false_positives, false_negatives).
+
+    FP: should_trigger=False but got=True (description too broad).
+    FN: should_trigger=True but got=False (description misses scenario).
+    """
+    false_positives = [f for f in failures if f["should_trigger"] is False]
+    false_negatives = [f for f in failures if f["should_trigger"] is True]
+    return (false_positives, false_negatives)
 
 
 # ── evaluation logic ─────────────────────────────────
@@ -107,12 +234,7 @@ def evaluate_single(
     Majority YES -> True.
     """
     yes_count = 0
-    prompt = (
-        f"A skill has this description:\n\n{description}\n\n"
-        f"User query: {query}\n\n"
-        "Should this skill be triggered for this query? "
-        "Answer only YES or NO."
-    )
+    prompt = EVALUATE_TEMPLATE.format(description=description, query=query)
     for _ in range(runs):
         response = call_claude(prompt)
         # only explicit YES (case-insensitive) counts as triggered
@@ -159,34 +281,39 @@ def evaluate_set(
 def improve_description(
     description: str,
     failures: list[dict],
+    *,
+    classified: tuple[list[dict], list[dict]] | None = None,
 ) -> str:
     """Improve description via claude based on failure cases.
 
     No failures -> return original description (no claude call).
     Empty result or >300 chars -> fallback to original.
+    classified: pre-computed (false_positives, false_negatives) to avoid re-classification.
     """
     if not failures:
         return description
 
-    # classify failures: false negatives (should trigger but didn't) and false positives (triggered but shouldn't)
-    false_negatives = [f for f in failures if f["should_trigger"] is True]
-    false_positives = [f for f in failures if f["should_trigger"] is False]
+    false_positives, false_negatives = classified or classify_failures(failures)
 
     prompt_parts = [
-        "Improve this skill description for better triggering accuracy.",
+        "Improve this skill description for better trigger accuracy.",
         f"\nCurrent description:\n{description}",
     ]
 
+    # FN direction: description misses scenarios → add concrete trigger patterns
     if false_negatives:
         queries = "\n".join(f"- {f['query']}" for f in false_negatives)
         prompt_parts.append(
-            f"\nFalse negatives (should trigger but didn't):\n{queries}"
+            f"\nFalse negatives — missed these scenarios (should trigger but did not):\n{queries}\n"
+            f"{IMPROVE_FN_GUIDANCE}"
         )
 
+    # FP direction: description too broad → add DO NOT use clauses
     if false_positives:
         queries = "\n".join(f"- {f['query']}" for f in false_positives)
         prompt_parts.append(
-            f"\nFalse positives (triggered but shouldn't):\n{queries}"
+            f"\nFalse positives — triggered when it should not:\n{queries}\n"
+            f"{IMPROVE_FP_GUIDANCE}"
         )
 
     prompt_parts.append(
@@ -211,16 +338,21 @@ def run_optimization(
     train_set: list[dict],
     test_set: list[dict],
     max_iterations: int = 5,
+    state_path: Path | None = None,
+    skill_name: str = "",
 ) -> dict:
     """Iteratively optimize description, select best by test score.
 
-    Each round: evaluate train -> evaluate test -> record best.
+    Each round: evaluate train -> evaluate test -> record best -> persist state.
     Perfect train (1.0) -> early stop.
-    Returns {best_description, best_test_score, iterations}.
+    state_path: when provided, saves OptState after each round for history/convergence tracking.
+    Returns {best_description, best_test_score, iterations, rounds, converged}.
     """
     best_description = description
     best_test_score = -1.0
     current_description = description
+    rounds: list[RoundRecord] = []
+    converged = False
 
     iteration = 0
     for iteration in range(1, max_iterations + 1):
@@ -232,17 +364,49 @@ def run_optimization(
         test_score, _ = evaluate_set(current_description, test_set)
         _log(f"  Test score:  {test_score:.2f}")
 
+        # DSPy-inspired: track FP/FN counts per round for structured history
+        false_positives, false_negatives = classify_failures(train_failures)
+        round_record = RoundRecord(
+            round=iteration,
+            description=current_description,
+            train_score=train_score,
+            test_score=test_score,
+            false_positive_count=len(false_positives),
+            false_negative_count=len(false_negatives),
+        )
+        rounds.append(round_record)
+
+        _log(f"  FP: {round_record.false_positive_count}  FN: {round_record.false_negative_count}")
+
         if test_score > best_test_score:
             best_test_score = test_score
             best_description = current_description
 
+        # convergence: computed unconditionally, used by both state persistence and early-stop
+        converged = train_score >= 1.0
+
+        # persist state after each round (partial runs still capture history)
+        if state_path is not None:
+            save_opt_state(
+                OptState(
+                    skill_name=skill_name,
+                    best_score=best_test_score,
+                    best_description=best_description,
+                    current_round=iteration,
+                    converged=converged,
+                    rounds=rounds,
+                ),
+                state_path,
+            )
+
         # perfect train -> stop (evaluate test before break to include final test score in best selection)
-        if train_score >= 1.0:
+        if converged:
             _log("  Perfect train score, stopping early.")
             break
 
         current_description = improve_description(
-            current_description, train_failures
+            current_description, train_failures,
+            classified=(false_positives, false_negatives),
         )
         _log(f"  Improved: {current_description[:80]}...")
 
@@ -250,12 +414,9 @@ def run_optimization(
         "best_description": best_description,
         "best_test_score": best_test_score,
         "iterations": iteration,
+        "rounds": [asdict(r) for r in rounds],
+        "converged": converged,
     }
-
-
-def _log(message: str) -> None:
-    """Progress log output to stderr."""
-    print(message, file=sys.stderr)
 
 
 # ── entry point ──────────────────────────────────────
@@ -276,10 +437,15 @@ def main() -> None:
     args = parser.parse_args()
 
     # load skill
-    name, original_description = load_skill(Path(args.skill_path))
+    skill_path = Path(args.skill_path)
+    name, original_description = load_skill(skill_path)
     if not name or not original_description:
         _log("ERROR: Failed to load skill or missing name/description")
         sys.exit(1)
+
+    # derive state path: <skill_dir>/.opt/opt_state.json
+    skill_dir = skill_path if skill_path.is_dir() else skill_path.parent
+    state_path = skill_dir / ".opt" / "opt_state.json"
 
     # load evals
     evals = load_evals(Path(args.eval_set))
@@ -291,12 +457,14 @@ def main() -> None:
     train_set, test_set = split_train_test(evals, ratio=0.6, seed=42)
     _log(f"Loaded {len(evals)} evals: {len(train_set)} train, {len(test_set)} test")
 
-    # run optimization
+    # run optimization with state persistence
     result = run_optimization(
         original_description,
         train_set,
         test_set,
         max_iterations=args.max_iterations,
+        state_path=state_path,
+        skill_name=name,
     )
 
     # output result JSON

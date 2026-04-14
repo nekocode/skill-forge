@@ -188,6 +188,23 @@ this skill. Three things matter:
    Claude may truncate from the end. Include one `Do NOT use when` to prevent
    false positives from adjacent concepts.
 
+4. **FP/FN awareness from the start.** Two failure modes to pre-empt:
+   - *False negatives* (skill never fires): description too narrow. Fixes:
+     - Add "Even if the user just says X, use this skill when they likely need Y"
+       for cases where users understate needs.
+     - Name specific artifacts from the workflow (file types, commands, tools)
+       so the description covers real phrasing, not just abstract concepts.
+     - Front-load the most distinctive trigger keywords — Claude may truncate
+       from the end.
+   - *False positives* (skill fires when it shouldn't): description too broad. Fixes:
+     - Add `Do NOT use when` listing specific task types that are false positives
+       (e.g., "Do NOT use for simple file reads, single-step edits, or code explanations").
+     - Replace vague verbs ("manage", "handle") with precise multi-step scenarios
+       that only match when the full workflow is needed.
+     - If a keyword is shared with unrelated tasks, qualify it with a condition
+       (e.g., "deploy" → "deploy with rollback and health checks").
+   Fewer starting errors = fewer optimization rounds to converge.
+
 ### Step 4: run the evaluator
 See **Skill evaluator** section. Write to disk only on pass ≥ 6.
 
@@ -259,11 +276,17 @@ helper code, that code belongs in `scripts/` — write once, reference in SKILL.
    ]
    ```
    Query quality rules:
-   - **Should-trigger**: vary phrasing; include cases where user doesn't say skill name
-     but clearly needs it; include cases competing with other skills.
-   - **Should-not-trigger**: near-misses with shared keywords but different needs.
-     Avoid obviously irrelevant queries.
-   - Be specific: file paths, company context, column names, backstory.
+   - **Should-trigger (FN prevention)**: vary phrasing; include cases where the user
+     understates needs ("just add a route" when they actually need full endpoint setup);
+     include cases competing with adjacent skills; use real artifacts (file paths,
+     command names, framework terms) from the codebase.
+   - **Should-not-trigger (FP prevention)**: near-misses sharing keywords but with
+     different intent — simple single-step tasks using the same domain vocabulary
+     (e.g., "read the deploy config" when the skill is for multi-step deployments).
+     Avoid obviously irrelevant queries ("what time is it") — they don't test the
+     boundary.
+   - **Intent over keywords**: the best negative cases share 2+ keywords with the
+     description but differ in complexity or intent. These expose overbroad triggers.
 
    Ask user to review before running.
 
@@ -275,6 +298,11 @@ helper code, that code belongs in `scripts/` — write once, reference in SKILL.
      --max-iterations 5
    ```
 3. Show before/after description and score improvement.
+
+   The optimizer persists state to `.claude/skills/<name>/.opt/opt_state.json`
+   after each round — round history with per-round FP/FN counts, best score,
+   and convergence flag. Convergence = perfect train score (1.0). If FP/FN counts
+   stall across rounds, stop early and report — eval set may need refinement.
 
 ### Step 4: finalize
 
@@ -316,10 +344,13 @@ Score before writing to disk. The goal is to catch both content problems and
 description problems before the skill lands in production.
 
 **Trigger quality (0–3)**
-- 3: Uses a multi-step scenario example, includes pushy coverage ("even if they
-  don't say X"), has `Do NOT use when`, under 250 chars, front-loads keywords
-- 2: Has `Use when` but missing pushy coverage or anti-pattern
-- 1: Vague description matching many things, or only mentions simple one-step tasks
+- 3: Multi-step scenario example; pushy coverage ("even if they don't say X");
+  `Do NOT use when` with specific exclusions; under 250 chars; front-loads
+  keywords; no vague verbs ("manage", "handle"); shared keywords qualified with
+  conditions. When optimizer has run, FP/FN counts drop each round.
+- 2: Has `Use when` but missing pushy coverage, or `Do NOT use when` too vague
+- 1: Vague description matching many things, uses simple verbs, or only mentions
+  one-step tasks. Likely to FP on keyword overlap.
 - 0: No description, or matches everything
 
 **Step clarity (0–3)**

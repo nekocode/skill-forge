@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 # ── path constants ───────────────────────────────────────
@@ -86,6 +87,14 @@ def run_subprocess(cmd: list[str], timeout: int = 30) -> str:
         return result.stdout.strip()
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         return ""
+
+
+# ── logging ─────────────────────────────────────────────
+
+
+def log_stderr(message: str) -> None:
+    """Progress log output to stderr."""
+    print(message, file=sys.stderr)
 
 
 # ── frontmatter parsing ──────────────────────────────────
