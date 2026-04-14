@@ -49,6 +49,7 @@ Run `skill-forge doctor` to verify your environment.
 1. **Hermes Agent** — Autonomous creation with concrete trigger conditions; patch over rewrite
 2. **planning-with-files** — File system as persistent working memory (context window = RAM, files = disk)
 3. **Anthropic skill-creator** — Eval-driven quality: description is a separate optimization problem, 20-case trigger evals, explain *why* not just *what*
+4. **DSPy** — All internal prompts (evaluation, improvement guidance) are self-optimized: structured FP/FN failure analysis, directional improvement, eval-driven variant selection
 
 ### Dual-File Security Model
 

@@ -49,6 +49,7 @@ skill-forge install
 1. **Hermes Agent** — 自主创建，触发条件具体化；patch 优先于 rewrite
 2. **planning-with-files** — 文件系统作为持久工作记忆（Context Window = RAM，文件 = 磁盘）
 3. **Anthropic skill-creator** — Eval 驱动质量保证：description 是独立优化问题，20 条触发测试，解释 *why* 而非只写 *what*
+4. **DSPy** — 所有内部 prompt（评估、改进引导）均经过自优化：结构化 FP/FN 失败分析、方向性改进、eval 驱动变体选择
 
 ### 双文件安全模型
 
