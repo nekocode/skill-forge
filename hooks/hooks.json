@@ -14,7 +14,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Write|Edit|MultiEdit|Bash|Read|Grep|Glob",
+        "matcher": "Write|Edit|MultiEdit|Bash|NotebookEdit|Agent|Read|Grep|Glob",
         "hooks": [
           {
             "type": "command",
@@ -41,8 +41,7 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/skill_forge_pre_compact.py\"",
-            "timeout": 3,
-            "async": true
+            "timeout": 3
           }
         ]
       }

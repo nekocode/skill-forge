@@ -14,7 +14,6 @@ from pathlib import Path
 
 # shared module from same directory
 from shared import DRAFT_FILE, FILE_WRITE_TOOLS, TOOL_CALL_THRESHOLD
-MAX_TASKS_SHOWN = 5
 
 
 # ── core functions ────────────────────────────────────
@@ -83,7 +82,8 @@ def scan_session(session_file: Path) -> tuple[int, list[dict]]:
             if items is None:
                 continue
 
-            # draft write detection (string pre-filter to reduce per-item iteration)
+            # draft write detection — string pre-filter avoids json.loads per-item cost.
+            # Assumes Claude Code JSONL uses `"name": "Write"` format (Python json.dumps default).
             if any(q in line for q in write_tool_quoted):
                 for item in items:
                     if item.get("name", "") not in FILE_WRITE_TOOLS:
@@ -117,14 +117,14 @@ def scan_session(session_file: Path) -> tuple[int, list[dict]]:
     return draft_line, turns
 
 
-def find_complex_tasks(turns: list[dict]) -> list[dict]:
+def check_session_complexity(turns: list[dict]) -> dict | None:
     """Merge all turns into one task block, filter by threshold.
 
-    Returns [{tools, summary, start_line}] when total tool calls >= TOOL_CALL_THRESHOLD.
-    summary uses first non-empty value.
+    Returns {tools, summary, start_line} when total tool calls >= TOOL_CALL_THRESHOLD.
+    summary uses first non-empty value. None if below threshold.
     """
     if not turns:
-        return []
+        return None
     all_tools: list[str] = []
     summary = ""
     start_line = turns[0]["line"]
@@ -133,55 +133,58 @@ def find_complex_tasks(turns: list[dict]) -> list[dict]:
         if not summary and turn["summary"]:
             summary = turn["summary"]
     if len(all_tools) < TOOL_CALL_THRESHOLD:
-        return []
-    return [{
+        return None
+    return {
         "tools": all_tools,
         "summary": summary,
         "start_line": start_line,
-    }]
+    }
 
 
-def format_report(tasks: list[dict]) -> str:
-    """Format report text. Returns empty string when no tasks.
+def format_report(task: dict | None) -> str:
+    """Format report text. Returns empty string when no task.
 
     Shows aggregated tool counts (e.g. Readx3, Writex1), summary, suggested command.
-    Displays at most MAX_TASKS_SHOWN tasks.
     """
-    if not tasks:
+    if not task:
         return ""
-    lines: list[str] = []
-    lines.append("=== Skill Catchup: uncaptured complex tasks ===\n")
-    for index, task in enumerate(tasks[:MAX_TASKS_SHOWN], 1):
-        tool_count = Counter(task["tools"])
-        total = len(task["tools"])
-        # format: Readx3, Writex1
-        tool_summary = ", ".join(
-            f"{name}x{count}" for name, count in tool_count.most_common()
-        )
-        lines.append(f"  {index}. {total} tool calls: {tool_summary}")
-        if task["summary"]:
-            lines.append(f"     Summary: {task['summary']}")
-        lines.append("     => /skill-forge create <prompt>\n")
+    tool_count = Counter(task["tools"])
+    total = len(task["tools"])
+    tool_summary = ", ".join(
+        f"{name}x{count}" for name, count in tool_count.most_common()
+    )
+    lines: list[str] = [
+        "=== Skill Catchup: uncaptured complex tasks ===\n",
+        f"  1. {total} tool calls: {tool_summary}",
+    ]
+    if task["summary"]:
+        lines.append(f"     Summary: {task['summary']}")
+    lines.append("     => /skill-forge create <prompt>\n")
     return "\n".join(lines)
 
 
-def main() -> None:
-    """Entry point. Get project path from sys.argv[1], scan recent session."""
-    if len(sys.argv) < 2:
-        return
-    cwd = sys.argv[1]
+def main(cwd: str | None = None) -> str:
+    """Entry point. Scan previous session for complex uncaptured tasks.
+
+    cwd: working directory (defaults to sys.argv[1] for CLI usage).
+    Returns report string (empty if nothing found).
+    """
+    if cwd is None:
+        if len(sys.argv) < 2:
+            return ""
+        cwd = sys.argv[1]
     project_dir = resolve_project_dir(cwd)
     sessions = get_sessions_sorted(project_dir)
     # sessions[0] is current session (exists when Phase 0 runs), scan previous via sessions[1]
     if len(sessions) < 2:
-        return
+        return ""
     session = sessions[1]
     _draft_line, turns = scan_session(session)
-    tasks = find_complex_tasks(turns)
-    report = format_report(tasks)
-    if report:
-        print(report)
+    task = check_session_complexity(turns)
+    return format_report(task)
 
 
 if __name__ == "__main__":  # pragma: no cover — entry guard, tests call main() directly
-    main()
+    report = main()
+    if report:
+        print(report)

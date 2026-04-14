@@ -17,4 +17,6 @@ export function run(projectRoot: string): void {
   } catch (e: unknown) {
     if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
   }
+
+  console.log("Initialized .claude/skills/ with empty registry.");
 }

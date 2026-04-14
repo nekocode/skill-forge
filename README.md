@@ -40,7 +40,7 @@ Run `skill-forge doctor` to verify your environment.
 | `/create <prompt>` | Create a new skill from prompt. Name auto-derived |
 | `/improve <prompt>` | Iterate existing skill from prompt. Target matched from registry |
 
-**Auto mode**: After complex tasks (5+ tool calls, error recovery, user corrections), the Stop hook detects the pattern and offers to create a skill — no manual invocation needed.
+**Auto mode**: After complex tasks (5+ tool calls), the Stop hook detects the pattern and offers to create a skill — no manual invocation needed.
 
 ## How It Works
 

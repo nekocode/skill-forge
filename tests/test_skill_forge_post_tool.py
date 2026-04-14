@@ -91,16 +91,16 @@ class TestBumpVersion:
         assert bump_version("5") == "6"
 
     def test_malformed_non_numeric(self) -> None:
-        """last segment non-numeric -> fallback to 1.0.1."""
-        assert bump_version("1.0.abc") == "1.0.1"
+        """last segment non-numeric -> fallback to 1.0.0."""
+        assert bump_version("1.0.abc") == "1.0.0"
 
     def test_malformed_empty(self) -> None:
-        """empty string -> fallback to 1.0.1."""
-        assert bump_version("") == "1.0.1"
+        """empty string -> fallback to 1.0.0."""
+        assert bump_version("") == "1.0.0"
 
     def test_malformed_garbage(self) -> None:
-        """garbage input -> fallback to 1.0.1."""
-        assert bump_version("not-a-version") == "1.0.1"
+        """garbage input -> fallback to 1.0.0."""
+        assert bump_version("not-a-version") == "1.0.0"
 
 
 # ── TestUpsertSkill ───────────────────────────────────────
@@ -219,10 +219,10 @@ class TestValidateSkill:
         warnings = validate_skill(content)
         assert not any("truncates" in w for w in warnings)
 
-    def test_missing_use_when(self) -> None:
-        """description without 'use when' -> trigger phrase warning."""
+    def test_missing_trigger_phrase(self) -> None:
+        """description without any trigger phrase -> warning."""
         warnings = validate_skill(NO_USE_WHEN_FM)
-        assert any("Use when" in w for w in warnings)
+        assert any("trigger phrase" in w for w in warnings)
 
     def test_use_when_case_insensitive(self) -> None:
         """'USE WHEN' uppercase -> still passes."""
@@ -233,7 +233,18 @@ description: USE WHEN you want to test case
 ---
 """
         warnings = validate_skill(content)
-        assert not any("Use when" in w for w in warnings)
+        assert not any("trigger phrase" in w for w in warnings)
+
+    def test_multilingual_trigger_phrase(self) -> None:
+        """Chinese trigger phrase also passes."""
+        content = """\
+---
+name: zh-test
+description: 使用时：当你需要执行数据库迁移
+---
+"""
+        warnings = validate_skill(content)
+        assert not any("trigger phrase" in w for w in warnings)
 
     def test_missing_fields_and_long_desc(self) -> None:
         """missing fields + too long -> returns multiple warnings."""

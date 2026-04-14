@@ -11,11 +11,11 @@ Output structured report with section headers to stdout.
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 # shared module from same directory
-from shared import DRAFT_FILE, REGISTRY_FILE, SKILLS_DIR, load_registry, run_subprocess
+from shared import DRAFT_FILE, REGISTRY_FILE, SKILLS_DIR, load_registry
+from skill_catchup import main as catchup_main
 
 # default max lines
 DEFAULT_DRAFT_LINES = 20
@@ -33,15 +33,12 @@ def load_draft_head(project_dir: Path, max_lines: int = DEFAULT_DRAFT_LINES) -> 
     return "\n".join(lines)
 
 
-def run_catchup(project_dir: Path, script_dir: Path) -> str:
-    """Call skill_catchup.py subprocess, return stdout.
+def run_catchup(project_dir: Path) -> str:
+    """Run session catchup scan directly (same process, no subprocess overhead).
 
-    Failure/timeout/not found returns empty string.
+    Returns report string (empty if nothing found).
     """
-    catchup_script = script_dir / "skill_catchup.py"
-    return run_subprocess(
-        [sys.executable, str(catchup_script), str(project_dir)], timeout=10,
-    )
+    return catchup_main(cwd=str(project_dir))
 
 
 def load_skills_list(project_dir: Path) -> str:
@@ -81,17 +78,13 @@ def load_registry_summary(project_dir: Path) -> str:
 
 def main(
     project_dir: Path | None = None,
-    script_dir: Path | None = None,
 ) -> None:
     """Entry point. Output structured report to stdout.
 
     project_dir: project root (defaults to cwd).
-    script_dir: scripts/ directory (defaults to CLAUDE_PLUGIN_ROOT/scripts or this file's directory).
     """
     if project_dir is None:
         project_dir = Path.cwd()
-    if script_dir is None:
-        script_dir = Path(__file__).resolve().parent
 
     sections: list[str] = []
 
@@ -101,7 +94,7 @@ def main(
         sections.append(f"=== Draft ===\n{draft}")
 
     # 2. Session catchup
-    catchup = run_catchup(project_dir, script_dir)
+    catchup = run_catchup(project_dir)
     if catchup:
         sections.append(f"=== Catchup ===\n{catchup}")
 

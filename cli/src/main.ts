@@ -55,7 +55,7 @@ function printHelp(): void {
 Usage: skill-forge <command>
 
 Commands:
-  install [--scope <user|project|local>]  Install plugin (prompts if no scope)
+  install [--scope <project|user>]  Install plugin (prompts if no scope)
   uninstall        Uninstall skill-forge plugin
   list             Print skill registry for current project
   registry clean   Remove orphaned registry entries
@@ -127,7 +127,6 @@ async function main(): Promise<void> {
 
     case "init":
       initRun(cwd);
-      console.log("Initialized .claude/skills/ with empty registry.");
       break;
 
     case "upgrade":
@@ -141,6 +140,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  console.error(error);
+  console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
 });

@@ -59,7 +59,7 @@ def bump_version(v: str) -> str:
     try:
         parts[-1] = str(int(parts[-1]) + 1)
     except Exception:
-        parts = ["1", "0", "1"]
+        parts = ["1", "0", "0"]
     return ".".join(parts)
 
 
@@ -86,8 +86,10 @@ def validate_skill(content: str, fm: dict | None = None) -> list[str]:
     desc = fm.get("description", "")
     if len(desc) > 250:
         warnings.append(f"Description is {len(desc)} chars — Claude Code truncates at 250")
-    if "use when" not in desc.lower():
-        warnings.append("Description lacks a 'Use when' trigger phrase — may under-trigger")
+    # multilingual trigger phrase check (mirrors user_prompt.py keyword detection)
+    trigger_phrases = ("use when", "use this", "使用时", "使用场景", "使う場合", "사용")
+    if not any(phrase in desc.lower() for phrase in trigger_phrases):
+        warnings.append("Description lacks a trigger phrase (e.g. 'Use when ...') — may under-trigger")
 
     return warnings
 

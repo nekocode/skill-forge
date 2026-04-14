@@ -22,7 +22,7 @@ def _run_main(monkeypatch, capsys, *, stdin_data: dict, registry: dict | None = 
     if registry is None:
         registry = {"version": "1", "skills": []}
     if state is None:
-        state = {"tool_calls": 5, "error_recovery": True, "user_correction": True}
+        state = {"tool_calls": 5, "compacted": True}
 
     saved: list[dict] = []
 
@@ -81,27 +81,22 @@ class TestMatcher:
 
 
 class TestStateReset:
-    """startup/clear resets tool_calls, error_recovery, user_correction."""
+    """startup/clear resets tool_calls and compacted."""
 
     def test_resets_counters(self, monkeypatch, capsys) -> None:
-        """all DEFAULT_STATE fields reset to zero/False/empty."""
-        state = {"tool_calls": 42, "error_recovery": True, "user_correction": True, "extra": "keep"}
+        """all DEFAULT_STATE fields reset to zero/False."""
+        state = {"tool_calls": 42, "compacted": True, "extra": "keep"}
         _, saved = _run_main(monkeypatch, capsys, stdin_data={"source": "startup"}, state=state)
         assert len(saved) == 1
         assert saved[0]["tool_calls"] == 0
-        assert saved[0]["error_recovery"] is False
-        assert saved[0]["user_correction"] is False
         assert saved[0]["compacted"] is False
-        assert saved[0]["pending_summary"] == ""
 
     def test_preserves_extra_fields(self, monkeypatch, capsys) -> None:
         """non-DEFAULT_STATE fields preserved."""
-        state = {"tool_calls": 1, "error_recovery": False, "user_correction": False, "compacted": True, "pending_summary": "x", "custom": "keep"}
+        state = {"tool_calls": 1, "compacted": True, "custom": "keep"}
         _, saved = _run_main(monkeypatch, capsys, stdin_data={"source": "clear"}, state=state)
-        # all DEFAULT_STATE fields reset
+        assert saved[0]["tool_calls"] == 0
         assert saved[0]["compacted"] is False
-        assert saved[0]["pending_summary"] == ""
-        # extra fields preserved
         assert saved[0]["custom"] == "keep"
 
 

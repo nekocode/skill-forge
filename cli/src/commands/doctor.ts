@@ -33,7 +33,7 @@ function checkPluginInstalled(): CheckResult {
   const name = "skill-forge plugin";
   try {
     const output = execSync("claude plugin list", { encoding: "utf-8", timeout: EXEC_TIMEOUT_MS });
-    if (output.includes("skill-forge")) {
+    if (output.split("\n").some((line) => line.trim().startsWith("skill-forge"))) {
       return { name, status: "pass", message: "Installed" };
     }
     return {

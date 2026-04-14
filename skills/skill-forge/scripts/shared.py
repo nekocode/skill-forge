@@ -32,10 +32,7 @@ FILE_WRITE_TOOLS = frozenset({"Write", "Edit", "MultiEdit"})
 
 DEFAULT_STATE: dict = {
     "tool_calls": 0,
-    "error_recovery": False,
-    "user_correction": False,
     "compacted": False,
-    "pending_summary": "",
 }
 
 
@@ -43,10 +40,17 @@ DEFAULT_STATE: dict = {
 
 
 def load_state(path: Path = STATE_FILE) -> dict:
-    """Read state file. Corrupted/missing returns default copy."""
+    """Read state file. Corrupted/missing returns default copy.
+
+    Catches FileNotFoundError + JSON decode errors. Other OSError (e.g. PermissionError)
+    is logged to stderr before returning default — silent corruption is dangerous.
+    """
     try:
         return json.loads(path.read_text())
-    except Exception:
+    except (FileNotFoundError, json.JSONDecodeError, ValueError):
+        return dict(DEFAULT_STATE)
+    except OSError as e:
+        log_stderr(f"skill-forge: state file read error ({e}), using defaults")
         return dict(DEFAULT_STATE)
 
 

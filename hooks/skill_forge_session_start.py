@@ -37,7 +37,7 @@ def main():
     state = load_state()
     skills = registry.get("skills", [])
 
-    # full state reset on new session (incl. compacted/pending_summary — prevent stale values from misleading Stop hook)
+    # full state reset on new session — prevent stale counters from misleading Stop hook
     state.update(DEFAULT_STATE)
     save_state(state)
 

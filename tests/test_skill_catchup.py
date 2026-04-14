@@ -8,7 +8,7 @@ from unittest.mock import patch
 import pytest
 
 from skill_catchup import (
-    find_complex_tasks,
+    check_session_complexity,
     format_report,
     get_sessions_sorted,
     main,
@@ -283,29 +283,29 @@ class TestScanSession:
         assert turns == []
 
 
-# ── find_complex_tasks ────────────────────────────────
+# ── check_session_complexity ──────────────────────────
 
 
-class TestFindComplexTasks:
-    """Merge turns into task blocks, filter by threshold."""
+class TestCheckSessionComplexity:
+    """Merge turns into task block, filter by threshold."""
 
     def test_empty_input(self) -> None:
-        assert find_complex_tasks([]) == []
+        assert check_session_complexity([]) is None
 
     def test_below_threshold(self) -> None:
         turns = [{"tools": ["Read"], "summary": "hi", "line": 0}]
-        assert find_complex_tasks(turns) == []
+        assert check_session_complexity(turns) is None
 
     def test_above_threshold(self) -> None:
-        """5+ tool calls -> merged into one task."""
+        """5+ tool calls -> merged into one task dict."""
         turns = [
             {"tools": ["Read", "Read"], "summary": "", "line": 0},
             {"tools": ["Write", "Bash", "Bash"], "summary": "deploying", "line": 5},
         ]
-        result = find_complex_tasks(turns)
-        assert len(result) == 1
-        assert len(result[0]["tools"]) == 5
-        assert result[0]["start_line"] == 0
+        result = check_session_complexity(turns)
+        assert result is not None
+        assert len(result["tools"]) == 5
+        assert result["start_line"] == 0
 
     def test_uses_first_nonempty_summary(self) -> None:
         """summary takes first non-empty value."""
@@ -313,8 +313,9 @@ class TestFindComplexTasks:
             {"tools": ["Read", "Read", "Read"], "summary": "", "line": 0},
             {"tools": ["Write", "Write"], "summary": "the real summary", "line": 5},
         ]
-        result = find_complex_tasks(turns)
-        assert result[0]["summary"] == "the real summary"
+        result = check_session_complexity(turns)
+        assert result is not None
+        assert result["summary"] == "the real summary"
 
 
 # ── format_report ─────────────────────────────────────
@@ -323,34 +324,32 @@ class TestFindComplexTasks:
 class TestFormatReport:
     """Report formatting."""
 
-    def test_empty_tasks(self) -> None:
-        assert format_report([]) == ""
+    def test_none_input(self) -> None:
+        assert format_report(None) == ""
 
     def test_includes_tool_counts(self) -> None:
         """includes tool counts and summary."""
-        tasks = [{
+        task = {
             "tools": ["Read", "Read", "Write", "Bash", "Bash"],
             "summary": "doing stuff",
             "start_line": 10,
-        }]
-        report = format_report(tasks)
+        }
+        report = format_report(task)
         assert "5 tool calls" in report
         assert "doing stuff" in report
-        # verify aggregation format (Counter.most_common by freq desc)
         assert "Readx2" in report
         assert "Bashx2" in report
         assert "Writex1" in report
-        # verify suggested command
         assert "/skill-forge create" in report
 
     def test_no_summary_skips_summary_line(self) -> None:
         """no summary -> Summary line omitted."""
-        tasks = [{
+        task = {
             "tools": ["Read"] * 5,
             "summary": "",
             "start_line": 0,
-        }]
-        report = format_report(tasks)
+        }
+        report = format_report(task)
         assert "Summary" not in report
         assert "5 tool calls" in report
 
@@ -361,33 +360,28 @@ class TestFormatReport:
 class TestMain:
     """Integration tests for main()."""
 
-    def test_no_args_exits(self, capsys: pytest.CaptureFixture[str]) -> None:
-        """no args -> silent exit, no output, no exception."""
+    def test_no_cwd_returns_empty(self) -> None:
+        """no cwd arg and no sys.argv -> return empty string."""
         with patch("skill_catchup.sys") as mock_sys:
             mock_sys.argv = ["skill_catchup.py"]
-            main()
-        captured = capsys.readouterr()
-        assert captured.out == ""
-        assert captured.err == ""
+            result = main()
+        assert result == ""
 
-    def test_no_sessions_silent(self, tmp_path: Path) -> None:
-        """no session files -> silent exit."""
-        with patch("skill_catchup.sys") as mock_sys:
-            mock_sys.argv = ["skill_catchup.py", str(tmp_path / "nonexistent")]
-            main()
+    def test_no_sessions_returns_empty(self, tmp_path: Path) -> None:
+        """no session files -> return empty string."""
+        result = main(cwd=str(tmp_path / "nonexistent"))
+        assert result == ""
 
-    def test_single_session_silent(self, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-        """only 1 session (current) -> silent exit."""
+    def test_single_session_returns_empty(self, tmp_path: Path) -> None:
+        """only 1 session (current) -> return empty string."""
         current = tmp_path / "current.jsonl"
         current.write_text("{}\n")
         with patch("skill_catchup.resolve_project_dir", return_value=tmp_path):
-            with patch("skill_catchup.sys") as mock_sys:
-                mock_sys.argv = ["skill_catchup.py", "/fake"]
-                main()
-        assert capsys.readouterr().out == ""
+            result = main(cwd="/fake")
+        assert result == ""
 
     def test_full_flow_with_complex_task(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+        self, tmp_path: Path
     ) -> None:
         """full flow: previous session has complex task -> output report."""
         # previous session (older mtime)
@@ -415,9 +409,6 @@ class TestMain:
         os.utime(current_session, (2000, 2000))
 
         with patch("skill_catchup.resolve_project_dir", return_value=tmp_path):
-            with patch("skill_catchup.sys") as mock_sys:
-                mock_sys.argv = ["skill_catchup.py", "/fake"]
-                main()
-        captured = capsys.readouterr()
-        assert "tool calls" in captured.out
-        assert "/skill-forge create" in captured.out
+            result = main(cwd="/fake")
+        assert "tool calls" in result
+        assert "/skill-forge create" in result

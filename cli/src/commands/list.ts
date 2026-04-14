@@ -6,7 +6,11 @@ import { loadRegistry, resolveRoot } from "../types.js";
 export function run(cwd: string): string {
   const { root, scope } = resolveRoot(cwd);
   const result = loadRegistry(root);
-  if (!result.ok) return result.error;
+  if (!result.ok) {
+    // Error goes to stderr so it doesn't pollute piped stdout
+    console.error(result.error);
+    return "";
+  }
 
   const { registry } = result;
   if (registry.skills.length === 0) {

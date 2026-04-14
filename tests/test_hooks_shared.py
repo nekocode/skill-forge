@@ -41,6 +41,16 @@ class TestLoadState:
         result = load_state(f)
         assert result == data
 
+    def test_permission_error_returns_default_with_warning(self, tmp_path: Path, capsys) -> None:
+        """PermissionError -> return default + log to stderr."""
+        f = tmp_path / "state.json"
+        f.write_text("{}")
+        f.chmod(0o000)
+        result = load_state(f)
+        assert result == DEFAULT_STATE
+        assert "state file read error" in capsys.readouterr().err
+        f.chmod(0o644)  # restore for cleanup
+
 
 class TestSaveState:
     """State file writing."""

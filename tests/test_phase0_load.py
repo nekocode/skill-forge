@@ -75,28 +75,18 @@ class TestLoadDraftHead:
 
 
 class TestRunCatchup:
-    """catchup subprocess invocation."""
+    """catchup direct invocation (no subprocess)."""
 
     def test_catchup_output(self, tmp_path: Path) -> None:
         """has output -> return as-is."""
-        with patch("shared.subprocess.run") as mock_run:
-            mock_run.return_value.stdout = "catchup report\n"
-            mock_run.return_value.returncode = 0
-            result = run_catchup(tmp_path, script_dir=tmp_path)
+        with patch("phase0_load.catchup_main", return_value="catchup report"):
+            result = run_catchup(tmp_path)
         assert "catchup report" in result
 
-    def test_catchup_failure(self, tmp_path: Path) -> None:
-        """subprocess failure -> return empty string."""
-        with patch("shared.subprocess.run") as mock_run:
-            mock_run.return_value.stdout = ""
-            mock_run.return_value.returncode = 1
-            result = run_catchup(tmp_path, script_dir=tmp_path)
-        assert result == ""
-
-    def test_catchup_exception(self, tmp_path: Path) -> None:
-        """subprocess exception -> return empty string."""
-        with patch("shared.subprocess.run", side_effect=FileNotFoundError):
-            result = run_catchup(tmp_path, script_dir=tmp_path)
+    def test_catchup_empty(self, tmp_path: Path) -> None:
+        """no uncaptured tasks -> return empty string."""
+        with patch("phase0_load.catchup_main", return_value=""):
+            result = run_catchup(tmp_path)
         assert result == ""
 
 
@@ -176,20 +166,16 @@ class TestMain:
         draft.parent.mkdir(parents=True)
         draft.write_text("# test — IN PROGRESS\n## Status\npending\n")
 
-        with patch("shared.subprocess.run") as mock_run:
-            mock_run.return_value.stdout = ""
-            mock_run.return_value.returncode = 1
-            main(project_dir=tmp_path, script_dir=tmp_path)
+        with patch("phase0_load.catchup_main", return_value=""):
+            main(project_dir=tmp_path)
 
         output = capsys.readouterr().out
         assert "=== Draft ===" in output
 
     def test_full_output_without_draft(self, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
         """no draft -> output does not contain draft section."""
-        with patch("shared.subprocess.run") as mock_run:
-            mock_run.return_value.stdout = ""
-            mock_run.return_value.returncode = 1
-            main(project_dir=tmp_path, script_dir=tmp_path)
+        with patch("phase0_load.catchup_main", return_value=""):
+            main(project_dir=tmp_path)
 
         output = capsys.readouterr().out
         assert "=== Draft ===" not in output

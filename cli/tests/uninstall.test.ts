@@ -5,29 +5,29 @@ vi.mock("node:child_process", () => ({
 }));
 
 import { execSync } from "node:child_process";
-import { run } from "../src/commands/upgrade.js";
+import { run } from "../src/commands/uninstall.js";
 
 const mockExecSync = vi.mocked(execSync);
 
-describe("upgrade command", () => {
+describe("uninstall command", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("runs npm install -g @nekocode/skill-forge@latest", () => {
+  it("runs claude plugin uninstall skill-forge", () => {
     mockExecSync.mockReturnValue("");
 
     run();
 
     expect(mockExecSync).toHaveBeenCalledWith(
-      "npm install -g @nekocode/skill-forge@latest",
+      "claude plugin uninstall skill-forge",
       expect.objectContaining({ stdio: "inherit" }),
     );
   });
 
   it("exits with friendly message on failure", () => {
     mockExecSync.mockImplementation(() => {
-      throw new Error("npm error");
+      throw new Error("command failed");
     });
 
     const exitSpy = vi.spyOn(process, "exit").mockImplementation(() => {

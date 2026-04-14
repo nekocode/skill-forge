@@ -40,7 +40,7 @@ skill-forge install
 | `/create <prompt>` | 从 prompt 创建新 skill，name 自动推导 |
 | `/improve <prompt>` | 从 prompt 迭代 skill，目标从 registry 匹配 |
 
-**Auto 模式**：完成复杂任务（5+ 工具调用、错误恢复、用户纠正）后，Stop hook 自动检测并提议创建 skill，无需手动调用。
+**Auto 模式**：完成复杂任务（5+ 工具调用）后，Stop hook 自动检测并提议创建 skill，无需手动调用。
 
 ## 工作原理
 

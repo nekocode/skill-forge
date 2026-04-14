@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -15,9 +15,14 @@ describe("list command", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("prints error when no registry exists", () => {
+  it("writes error to stderr when no registry exists", () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const output = run(tmpDir);
-    expect(output).toContain("No skill registry found");
+    expect(output).toBe("");
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("No skill registry found"),
+    );
+    errorSpy.mockRestore();
   });
 
   it("prints empty message when registry has no skills", () => {
@@ -32,7 +37,7 @@ describe("list command", () => {
     expect(output).toContain("No skills registered");
   });
 
-  it("prints error for corrupted JSON", () => {
+  it("writes error to stderr for corrupted JSON", () => {
     const skillsDir = path.join(tmpDir, ".claude", "skills");
     fs.mkdirSync(skillsDir, { recursive: true });
     fs.writeFileSync(
@@ -40,11 +45,16 @@ describe("list command", () => {
       "not valid json",
     );
 
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const output = run(tmpDir);
-    expect(output).toContain("Failed to parse");
+    expect(output).toBe("");
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Failed to parse"),
+    );
+    errorSpy.mockRestore();
   });
 
-  it("prints error for malformed registry without skills array", () => {
+  it("writes error to stderr for malformed registry without skills array", () => {
     const skillsDir = path.join(tmpDir, ".claude", "skills");
     fs.mkdirSync(skillsDir, { recursive: true });
     fs.writeFileSync(
@@ -52,8 +62,13 @@ describe("list command", () => {
       JSON.stringify({ version: "1" }),
     );
 
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const output = run(tmpDir);
-    expect(output).toContain("Malformed");
+    expect(output).toBe("");
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Malformed"),
+    );
+    errorSpy.mockRestore();
   });
 
   it("prints formatted table for skills", () => {

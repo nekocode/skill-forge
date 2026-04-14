@@ -23,6 +23,9 @@ from pathlib import Path
 # shared module from same directory
 from shared import log_stderr as _log, parse_frontmatter, run_subprocess
 
+# model used for eval/improve calls — change to test different models
+CLAUDE_MODEL = "claude-sonnet-4-6"
+
 # ── prompt templates (optimized via self_evolve.py dev tool) ──
 # Developer runs self_evolve.py to find better variants, then updates these constants.
 # Placeholders: {description}, {query} are filled at call site.
@@ -138,7 +141,7 @@ def call_claude(prompt: str) -> str:
     Single retry with 2s backoff on transient failure (timeout, empty response).
     Final failure returns empty string.
     """
-    cmd = ["claude", "--model", "claude-sonnet-4-6", "--print", "-p", prompt]
+    cmd = ["claude", "--model", CLAUDE_MODEL, "--print", "-p", prompt]
     result = run_subprocess(cmd, timeout=60)
     if result:
         return result

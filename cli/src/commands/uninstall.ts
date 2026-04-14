@@ -1,6 +1,6 @@
 // Uninstall skill-forge plugin via claude CLI.
 // Wraps: `claude plugin uninstall skill-forge`
-// No unit test — pure execSync delegation, testing would only verify Node child_process.
+// Mirrors upgrade.ts pattern — tested via mocked execSync.
 
 import { execSync } from "node:child_process";
 import { PLUGIN_NAME } from "../types.js";

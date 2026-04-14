@@ -12,4 +12,4 @@ __pycache__/
 
 # Node CLI
 cli/dist/
-cli/node_modules/
+node_modules/

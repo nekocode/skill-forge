@@ -201,7 +201,12 @@ def score_guidance_prompt(guidance: str, guidance_type: str, eval_data: list[dic
     if not result:
         return 0.0
 
-    score, lower = 0.25, result.lower()  # 0.25 for non-empty
+    # Scoring weights: 4 criteria at 0.25 each = 1.0 max
+    #   0.25: produced non-empty output
+    #   0.25: length within limit (300 chars)
+    #   0.25: contains expected trigger/exclusion phrases
+    #   0.25: for FN guidance: expanded description; for FP guidance: has "when" clause
+    score, lower = 0.25, result.lower()
     if len(result) <= 300:
         score += 0.25
     if is_fn:
@@ -233,8 +238,16 @@ def score_instruction_quality(instruction: str, eval_data: list[dict]) -> float:
     if not result:
         return 0.0
 
+    # Scoring weights: 6 criteria totaling 1.0 max
+    #   0.15: produced output
+    #   0.20: length within limit (250 chars)
+    #   0.15: mentions domain keywords (schema/migration/backup/validation)
+    #   0.15: has pushy coverage phrases (even if/even when)
+    #   0.15: has exclusion phrases (do not/not use)
+    #   0.10: avoids vague verbs (manage/handle/work with/deal with)
+    #   0.10: domain keyword in first 50 chars (specificity bonus)
     lower = result.lower()
-    score = 0.15  # produced output
+    score = 0.15
     if len(result) <= 250:
         score += 0.20
     if any(w in lower for w in ("schema", "migration", "backup", "validation")):
@@ -369,7 +382,11 @@ def apply_results(results: list[dict], catalog: list[PromptEntry],
 
 
 def _patch_python_constant(content: str, const_name: str, new_value: str) -> str:
-    """Replace a Python string constant (NAME = (...)) with new value."""
+    """Replace a Python string constant written as NAME = (\\n...\\n) with new value.
+
+    Only matches parenthesized multiline format. Single-line or triple-quote formats
+    are NOT supported — the function logs a warning and returns content unchanged.
+    """
     pattern = re.compile(
         rf'^{const_name} = \(\n(.*?)\n\)',
         re.MULTILINE | re.DOTALL,
