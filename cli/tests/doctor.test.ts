@@ -90,7 +90,7 @@ describe("doctor command", () => {
 
     const results = runDoctor(tmpDir);
     const skillsDirCheck = results.find((r: CheckResult) =>
-      r.name.includes("skills"),
+      r.name === "skills directory",
     );
     expect(skillsDirCheck?.status).toBe("warn");
   });

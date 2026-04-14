@@ -40,6 +40,39 @@ export function registryPath(root: string): string {
   return path.join(skillsDir(root), "skill_registry.json");
 }
 
+// ── Scope resolution ────────────────────────────────────────────────────
+// Priority: project (cwd/.claude/skills/) → user (~/.claude/skills/)
+
+export type ResolvedScope = "project" | "user";
+
+export interface ResolvedRoot {
+  root: string;
+  scope: ResolvedScope;
+}
+
+/**
+ * Resolve skills root by checking project scope first, then user scope.
+ * Returns the first scope where skill_registry.json exists.
+ * Falls back to project scope if neither has a registry.
+ */
+export function resolveRoot(cwd: string): ResolvedRoot {
+  const projectReg = registryPath(cwd);
+  if (fs.existsSync(projectReg)) {
+    return { root: cwd, scope: "project" };
+  }
+
+  const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
+  if (home) {
+    const userReg = registryPath(home);
+    if (fs.existsSync(userReg)) {
+      return { root: home, scope: "user" };
+    }
+  }
+
+  // Neither exists — default to project scope
+  return { root: cwd, scope: "project" };
+}
+
 // ── Registry I/O ────────────────────────────────────────────────────────
 
 export type RegistryLoadResult =

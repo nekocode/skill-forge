@@ -17,12 +17,12 @@ interface CleanError {
   kept?: undefined;
 }
 
-export function clean(projectRoot: string): CleanResult | CleanError {
-  const result = loadRegistry(projectRoot);
+export function clean(root: string): CleanResult | CleanError {
+  const result = loadRegistry(root);
   if (!result.ok) return { error: result.error };
 
   const { registry } = result;
-  const dir = skillsDir(projectRoot);
+  const dir = skillsDir(root);
   const kept: typeof registry.skills = [];
   const removed: string[] = [];
 
@@ -36,7 +36,7 @@ export function clean(projectRoot: string): CleanResult | CleanError {
   }
 
   if (removed.length > 0) {
-    saveRegistry(projectRoot, { ...registry, skills: kept });
+    saveRegistry(root, { ...registry, skills: kept });
   }
 
   return {

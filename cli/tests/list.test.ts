@@ -93,6 +93,7 @@ describe("list command", () => {
     );
 
     const output = run(tmpDir);
+    expect(output).toContain("[project]");
     expect(output).toContain("generate-endpoint");
     expect(output).toContain("1.2.0");
     expect(output).toContain("89%");

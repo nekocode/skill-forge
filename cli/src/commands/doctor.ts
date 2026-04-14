@@ -3,7 +3,7 @@
 
 import { execSync } from "node:child_process";
 import fs from "node:fs";
-import { skillsDir } from "../types.js";
+import { skillsDir, resolveRoot } from "../types.js";
 
 // Prevent indefinite hang if a subprocess blocks (e.g. claude plugin list doing network I/O)
 const EXEC_TIMEOUT_MS = 10_000;
@@ -64,10 +64,11 @@ function checkPython(): CheckResult {
   }
 }
 
-function checkSkillsDir(projectRoot: string): CheckResult {
-  const name = ".claude/skills/ directory";
-  if (fs.existsSync(skillsDir(projectRoot))) {
-    return { name, status: "pass", message: "Exists" };
+function checkSkillsDir(cwd: string): CheckResult {
+  const name = "skills directory";
+  const { root, scope } = resolveRoot(cwd);
+  if (fs.existsSync(skillsDir(root))) {
+    return { name, status: "pass", message: `Found [${scope}]` };
   }
   return {
     name,

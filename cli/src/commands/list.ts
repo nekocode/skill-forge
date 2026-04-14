@@ -1,10 +1,11 @@
 // Read .claude/skills/skill_registry.json and pretty-print as aligned table.
 // Returns the formatted string (for testability) and prints to stdout when called from CLI.
 
-import { loadRegistry } from "../types.js";
+import { loadRegistry, resolveRoot } from "../types.js";
 
-export function run(projectRoot: string): string {
-  const result = loadRegistry(projectRoot);
+export function run(cwd: string): string {
+  const { root, scope } = resolveRoot(cwd);
+  const result = loadRegistry(root);
   if (!result.ok) return result.error;
 
   const { registry } = result;
@@ -29,7 +30,7 @@ export function run(projectRoot: string): string {
   ]);
 
   return (
-    `skill-forge registry (.claude/skills/)\n\n` + formatTable(headers, rows)
+    `skill-forge registry [${scope}]\n\n` + formatTable(headers, rows)
   );
 }
 

@@ -10,6 +10,7 @@ import { run as uninstallRun } from "./commands/uninstall.js";
 import { run as listRun } from "./commands/list.js";
 import { clean as registryClean } from "./commands/registry.js";
 import { runDoctor, formatResults } from "./commands/doctor.js";
+import { resolveRoot } from "./types.js";
 import { run as upgradeRun } from "./commands/upgrade.js";
 
 // Single source of truth — reads version from package.json
@@ -54,7 +55,7 @@ function printHelp(): void {
 Usage: skill-forge <command>
 
 Commands:
-  install          Install skill-forge plugin via claude CLI
+  install [--scope <user|project|local>]  Install plugin (prompts if no scope)
   uninstall        Uninstall skill-forge plugin
   list             Print skill registry for current project
   registry clean   Remove orphaned registry entries
@@ -67,7 +68,7 @@ Options:
   --version, -v    Show version`);
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const { command, args } = parseCommand(process.argv);
   const cwd = process.cwd();
 
@@ -81,7 +82,7 @@ function main(): void {
       break;
 
     case "install":
-      installRun();
+      await installRun(args);
       break;
 
     case "uninstall":
@@ -100,16 +101,18 @@ function main(): void {
         );
         process.exit(1);
       }
-      const result = registryClean(cwd);
+      const { root, scope } = resolveRoot(cwd);
+      const result = registryClean(root);
       if ("error" in result) {
         console.error(result.error);
         process.exit(1);
       }
+      const scopeTag = `[${scope}]`;
       if (result.removed.length === 0) {
-        console.log("Registry is clean. No orphaned entries.");
+        console.log(`Registry ${scopeTag} is clean. No orphaned entries.`);
       } else {
         console.log(
-          `Removed ${result.removed.length} stale entries: ${result.removed.join(", ")}`,
+          `${scopeTag} Removed ${result.removed.length} stale entries: ${result.removed.join(", ")}`,
         );
       }
       break;
@@ -137,4 +140,7 @@ function main(): void {
   }
 }
 
-main();
+main().catch((error: unknown) => {
+  console.error(error);
+  process.exit(1);
+});
