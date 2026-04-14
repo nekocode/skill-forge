@@ -706,7 +706,7 @@
         </p>
         <button class="hero-install" id="installBtn" type="button">
           <span class="prompt" aria-hidden="true">$</span>
-          <span>npx skill-forge install</span>
+          <span>npx @nekocode/skill-forge install</span>
           <span class="copy-hint" aria-live="polite">click to copy</span>
         </button>
       </div>
@@ -835,8 +835,8 @@
       </div>
       <div class="how-item" data-reveal>
         <div class="how-item-label">Eval-driven triggers</div>
-        <div class="how-item-title">Description is a separate problem</div>
-        <div class="how-item-text">20-case trigger evaluations, 60/40 train/test split, up to 5 optimization rounds. Your skill fires when it should.</div>
+        <div class="how-item-title">DSPy-inspired, self-optimized</div>
+        <div class="how-item-text">20-case trigger evals with structured FP/FN failure analysis. All internal prompts are self-optimized via eval-driven variant selection.</div>
       </div>
     </div>
   </section>
@@ -844,7 +844,7 @@
   <!-- ── CTA ── -->
   <section class="cta">
     <h2 class="cta-title">Start forging.</h2>
-    <button class="cta-install" id="ctaBtn">npx skill-forge install</button>
+    <button class="cta-install" id="ctaBtn">npx @nekocode/skill-forge install</button>
     <p class="cta-sub">Then run <code>/scan</code> to discover your first opportunities.</p>
   </section>
 
@@ -1224,7 +1224,7 @@
       btns.forEach(btn => {
         if (!btn) return;
         btn.addEventListener('click', () => {
-          navigator.clipboard.writeText('npx skill-forge install').then(() => {
+          navigator.clipboard.writeText('npx @nekocode/skill-forge install').then(() => {
             const hint = btn.querySelector('.copy-hint');
             if (hint) {
               hint.textContent = 'copied!';

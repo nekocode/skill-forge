@@ -19,7 +19,7 @@ Claude Code skills solve "how to codify workflows into reusable slash commands."
 **Via CLI (recommended):**
 
 ```bash
-npm install -g skill-forge
+npm install -g @nekocode/skill-forge
 skill-forge install
 ```
 
@@ -107,7 +107,7 @@ Minimum score to save: **6/8**.
 The `skill-forge` CLI provides terminal-based plugin management without entering a Claude Code session.
 
 ```bash
-npm install -g skill-forge
+npm install -g @nekocode/skill-forge
 ```
 
 | Command | What it does |
