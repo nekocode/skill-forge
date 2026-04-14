@@ -6,7 +6,7 @@ import { execSync } from "node:child_process";
 import { createInterface } from "node:readline";
 import { PLUGIN_NAME, MARKETPLACE_SOURCE } from "../types.js";
 
-const VALID_SCOPES = ["user", "project", "local"] as const;
+const VALID_SCOPES = ["project", "user"] as const;
 type Scope = (typeof VALID_SCOPES)[number];
 
 /** Parse --scope <value> from args. Returns undefined if not provided. */
@@ -26,15 +26,13 @@ export function promptScope(): Promise<Scope> {
   return new Promise((resolve) => {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
     console.log("\nInstall scope:");
-    console.log("  1) user     — available in all projects");
-    console.log("  2) project  — this project only");
-    console.log("  3) local    — this project, not committed");
-    rl.question("\nChoose [1/2/3] (default: 2): ", (answer) => {
+    console.log("  1) project  — this project only");
+    console.log("  2) user     — available in all projects");
+    rl.question("\nChoose [1/2] (default: 1): ", (answer) => {
       rl.close();
       const trimmed = answer.trim();
-      if (trimmed === "" || trimmed === "2" || trimmed === "project") resolve("project");
-      else if (trimmed === "1" || trimmed === "user") resolve("user");
-      else if (trimmed === "3" || trimmed === "local") resolve("local");
+      if (trimmed === "" || trimmed === "1" || trimmed === "project") resolve("project");
+      else if (trimmed === "2" || trimmed === "user") resolve("user");
       else {
         console.error(`Invalid choice: ${trimmed}`);
         process.exit(1);

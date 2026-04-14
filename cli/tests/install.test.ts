@@ -19,9 +19,8 @@ describe("parseScope", () => {
   });
 
   it("parses valid scopes", () => {
-    expect(parseScope(["--scope", "user"])).toBe("user");
     expect(parseScope(["--scope", "project"])).toBe("project");
-    expect(parseScope(["--scope", "local"])).toBe("local");
+    expect(parseScope(["--scope", "user"])).toBe("user");
   });
 
   it("exits on invalid scope", () => {
@@ -60,23 +59,13 @@ describe("promptScope", () => {
     expect(await promptScope()).toBe("project");
   });
 
-  it("selects user by number", async () => {
-    mockReadline("1");
-    expect(await promptScope()).toBe("user");
-  });
-
   it("selects project by number", async () => {
-    mockReadline("2");
+    mockReadline("1");
     expect(await promptScope()).toBe("project");
   });
 
-  it("selects local by number", async () => {
-    mockReadline("3");
-    expect(await promptScope()).toBe("local");
-  });
-
-  it("selects by name", async () => {
-    mockReadline("user");
+  it("selects user by number", async () => {
+    mockReadline("2");
     expect(await promptScope()).toBe("user");
   });
 
@@ -85,9 +74,9 @@ describe("promptScope", () => {
     expect(await promptScope()).toBe("project");
   });
 
-  it("selects local by name", async () => {
-    mockReadline("local");
-    expect(await promptScope()).toBe("local");
+  it("selects user by name", async () => {
+    mockReadline("user");
+    expect(await promptScope()).toBe("user");
   });
 
   it("exits on invalid input", async () => {
