@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { resolveRoot, GITHUB_REPO, EMBED_VERSION_FILE, EMBED_HOOKS_DIR, EMBED_COMMANDS } from "../src/types.js";
+import { resolveRoot, GITHUB_REPO, EMBED_VERSION_FILE, EMBED_HOOKS_DIR, EMBED_COMMANDS, PLUGIN_NAME, embedCommandName } from "../src/types.js";
 
 describe("resolveRoot", () => {
   let tmpDir: string;
@@ -92,5 +92,13 @@ describe("embed constants", () => {
 
   it("exports embed command filenames", () => {
     expect(EMBED_COMMANDS).toEqual(["scan.md", "create.md", "improve.md"]);
+  });
+});
+
+describe("embedCommandName", () => {
+  it("prefixes source filename with plugin name", () => {
+    for (const file of EMBED_COMMANDS) {
+      expect(embedCommandName(file)).toBe(`${PLUGIN_NAME}:${file}`);
+    }
   });
 });

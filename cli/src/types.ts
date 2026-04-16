@@ -37,6 +37,12 @@ export const EMBED_VERSION_FILE = ".claude/hooks/skill-forge/version.json";
 export const EMBED_HOOKS_DIR = ".claude/hooks/skill-forge";
 export const EMBED_COMMANDS = ["scan.md", "create.md", "improve.md"];
 
+// Prefix applied to command filenames during embed install so they appear
+// as /skill-forge:scan instead of bare /scan in project scope.
+export function embedCommandName(sourceFile: string): string {
+  return `${PLUGIN_NAME}:${sourceFile}`;
+}
+
 // ── Path helpers ────────────────────────────────────────────────────────
 
 export function skillsDir(root: string): string {

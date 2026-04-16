@@ -12,6 +12,7 @@ import {
   EMBED_VERSION_FILE,
   EMBED_HOOKS_DIR,
   EMBED_COMMANDS,
+  embedCommandName,
 } from "../types.js";
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -117,22 +118,18 @@ export function detectEmbedInstall(projectRoot: string): boolean {
 
 /**
  * Remove all skill-forge embed files from a project root.
- * - Removes only SF command files (scan.md, create.md, improve.md)
+ * - Removes SF command files (prefixed + legacy bare forms)
  * - Removes .claude/skills/skill-forge/
  * - Removes .claude/hooks/skill-forge/
  * - Strips SF hooks from .claude/settings.json
  * - Cleans up empty event arrays and empty hooks object
  */
 export function removeEmbedFiles(projectRoot: string): void {
-  // Remove SF command files
   const commandsDir = path.join(projectRoot, ".claude", "commands");
   for (const file of EMBED_COMMANDS) {
-    const filePath = path.join(commandsDir, file);
-    try {
-      fs.rmSync(filePath, { force: true });
-    } catch {
-      // Ignore missing
-    }
+    // Both prefixed (current) and bare (legacy) forms
+    fs.rmSync(path.join(commandsDir, embedCommandName(file)), { force: true });
+    fs.rmSync(path.join(commandsDir, file), { force: true });
   }
 
   // Remove SF skills dir
@@ -243,15 +240,19 @@ export function embedInstall(projectRoot: string, tag?: string): string {
     // Version derived from tag (tarball doesn't include .claude-plugin/)
     const version = tag.replace(/^v/, "");
 
-    // Copy commands/*.md → .claude/commands/
+    // Copy commands/*.md → .claude/commands/ (with plugin prefix)
     const srcCommandsDir = path.join(extractRoot, "commands");
     const destCommandsDir = path.join(projectRoot, ".claude", "commands");
     fs.mkdirSync(destCommandsDir, { recursive: true });
+    // Drop legacy bare command files regardless of tarball contents
+    for (const file of EMBED_COMMANDS) {
+      fs.rmSync(path.join(destCommandsDir, file), { force: true });
+    }
     if (fs.existsSync(srcCommandsDir)) {
       for (const file of EMBED_COMMANDS) {
         const src = path.join(srcCommandsDir, file);
         if (fs.existsSync(src)) {
-          fs.copyFileSync(src, path.join(destCommandsDir, file));
+          fs.copyFileSync(src, path.join(destCommandsDir, embedCommandName(file)));
         }
       }
     }

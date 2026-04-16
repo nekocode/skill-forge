@@ -21,6 +21,7 @@ import {
   detectEmbedInstall,
   embedInstall,
 } from "../src/commands/embed.js";
+import { embedCommandName, EMBED_COMMANDS } from "../src/types.js";
 
 const mockExecSync = vi.mocked(execSync);
 
@@ -254,12 +255,12 @@ describe("removeEmbedFiles", () => {
   });
 
   function setupFullEmbed(root: string) {
-    // SF command files
+    // SF command files (prefixed, as embed installs them)
     const commandsDir = path.join(root, ".claude", "commands");
     fs.mkdirSync(commandsDir, { recursive: true });
-    fs.writeFileSync(path.join(commandsDir, "scan.md"), "scan");
-    fs.writeFileSync(path.join(commandsDir, "create.md"), "create");
-    fs.writeFileSync(path.join(commandsDir, "improve.md"), "improve");
+    fs.writeFileSync(path.join(commandsDir, embedCommandName("scan.md")), "scan");
+    fs.writeFileSync(path.join(commandsDir, embedCommandName("create.md")), "create");
+    fs.writeFileSync(path.join(commandsDir, embedCommandName("improve.md")), "improve");
     // User command file
     fs.writeFileSync(path.join(commandsDir, "my-command.md"), "user");
 
@@ -313,10 +314,24 @@ describe("removeEmbedFiles", () => {
     removeEmbedFiles(tmpDir);
 
     const commandsDir = path.join(tmpDir, ".claude", "commands");
-    expect(fs.existsSync(path.join(commandsDir, "scan.md"))).toBe(false);
-    expect(fs.existsSync(path.join(commandsDir, "create.md"))).toBe(false);
-    expect(fs.existsSync(path.join(commandsDir, "improve.md"))).toBe(false);
+    expect(fs.existsSync(path.join(commandsDir, embedCommandName("scan.md")))).toBe(false);
+    expect(fs.existsSync(path.join(commandsDir, embedCommandName("create.md")))).toBe(false);
+    expect(fs.existsSync(path.join(commandsDir, embedCommandName("improve.md")))).toBe(false);
     expect(fs.existsSync(path.join(commandsDir, "my-command.md"))).toBe(true);
+  });
+
+  it("removes legacy unprefixed command files on uninstall", () => {
+    const commandsDir = path.join(tmpDir, ".claude", "commands");
+    fs.mkdirSync(commandsDir, { recursive: true });
+    for (const file of EMBED_COMMANDS) {
+      fs.writeFileSync(path.join(commandsDir, file), "legacy");
+    }
+
+    removeEmbedFiles(tmpDir);
+
+    for (const file of EMBED_COMMANDS) {
+      expect(fs.existsSync(path.join(commandsDir, file))).toBe(false);
+    }
   });
 
   it("removes .claude/skills/skill-forge/ directory", () => {
@@ -528,10 +543,10 @@ describe("embedInstall", () => {
 
     expect(version).toBe("0.5.0");
 
-    // Commands installed
-    expect(fs.existsSync(path.join(tmpDir, ".claude", "commands", "scan.md"))).toBe(true);
-    expect(fs.existsSync(path.join(tmpDir, ".claude", "commands", "create.md"))).toBe(true);
-    expect(fs.existsSync(path.join(tmpDir, ".claude", "commands", "improve.md"))).toBe(true);
+    // Commands installed with plugin prefix
+    expect(fs.existsSync(path.join(tmpDir, ".claude", "commands", embedCommandName("scan.md")))).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, ".claude", "commands", embedCommandName("create.md")))).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, ".claude", "commands", embedCommandName("improve.md")))).toBe(true);
 
     // skills/skill-forge installed
     expect(fs.existsSync(path.join(tmpDir, ".claude", "skills", "skill-forge", "SKILL.md"))).toBe(true);
@@ -568,7 +583,7 @@ describe("embedInstall", () => {
     );
     expect(apiCalls).toHaveLength(0);
     // Files still installed correctly
-    expect(fs.existsSync(path.join(tmpDir, ".claude", "commands", "scan.md"))).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, ".claude", "commands", embedCommandName("scan.md")))).toBe(true);
     expect(fs.existsSync(path.join(tmpDir, ".claude", "hooks", "skill-forge", "version.json"))).toBe(true);
   });
 
@@ -587,6 +602,25 @@ describe("embedInstall", () => {
     // settings.json should now be valid (fresh merge)
     const settings = JSON.parse(fs.readFileSync(path.join(settingsDir, "settings.json"), "utf-8"));
     expect(settings.hooks).toBeDefined();
+  });
+
+  it("removes legacy unprefixed command files during install", () => {
+    // Pre-create old-style bare command files (pre-prefix era)
+    const commandsDir = path.join(tmpDir, ".claude", "commands");
+    fs.mkdirSync(commandsDir, { recursive: true });
+    fs.writeFileSync(path.join(commandsDir, "scan.md"), "old");
+    fs.writeFileSync(path.join(commandsDir, "create.md"), "old");
+    fs.writeFileSync(path.join(commandsDir, "improve.md"), "old");
+
+    makeMockExec();
+    embedInstall(tmpDir);
+
+    // Legacy bare files removed
+    expect(fs.existsSync(path.join(commandsDir, "scan.md"))).toBe(false);
+    expect(fs.existsSync(path.join(commandsDir, "create.md"))).toBe(false);
+    expect(fs.existsSync(path.join(commandsDir, "improve.md"))).toBe(false);
+    // Prefixed files installed
+    expect(fs.existsSync(path.join(commandsDir, embedCommandName("scan.md")))).toBe(true);
   });
 
   it("cleans up temp dir on tar failure", () => {
