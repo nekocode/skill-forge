@@ -1,13 +1,15 @@
-// Uninstall skill-forge: detect embed vs plugin install and clean accordingly.
+// Uninstall skill-forge: resolve scope, detect embed vs plugin, clean accordingly.
 
 import { execSync } from "node:child_process";
-import { PLUGIN_NAME } from "../types.js";
+import { PLUGIN_NAME, resolveRoot } from "../types.js";
 import { detectEmbedInstall, removeEmbedFiles } from "./embed.js";
 
-export function run(projectRoot: string): void {
-  if (detectEmbedInstall(projectRoot)) {
-    console.log("Removing embedded skill-forge files...");
-    removeEmbedFiles(projectRoot);
+export function run(cwd: string): void {
+  const { root, scope } = resolveRoot(cwd);
+
+  if (detectEmbedInstall(root)) {
+    console.log(`Removing embedded skill-forge files... [${scope}]`);
+    removeEmbedFiles(root);
     console.log("Done. Embed files removed from .claude/.");
     return;
   }

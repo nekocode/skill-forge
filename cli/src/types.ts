@@ -64,17 +64,65 @@ export interface ResolvedRoot {
 }
 
 /**
- * Resolve skills root by checking project scope first, then user scope.
- * Returns the first scope where skill_registry.json exists.
- * Falls back to project scope if neither has a registry.
+ * Walk up from cwd looking for a directory containing .git or .claude.
+ * Returns the first match, or null if none found up to filesystem root.
+ * Permission-safe: existsSync returns false on EACCES, so unreadable
+ * dirs are silently skipped (same as find-up / npm behavior).
+ */
+export function findProjectRoot(cwd: string): string | null {
+  let dir = path.resolve(cwd);
+  const root = path.parse(dir).root;
+
+  while (true) {
+    if (
+      fs.existsSync(path.join(dir, ".git")) ||
+      fs.existsSync(path.join(dir, ".claude"))
+    ) {
+      return dir;
+    }
+    if (dir === root) return null;
+    dir = path.dirname(dir);
+  }
+}
+
+/** Return user home directory (~), or null if indeterminate. */
+export function userHome(): string | null {
+  return process.env.HOME || process.env.USERPROFILE || null;
+}
+
+/**
+ * Resolve target root without checking registry existence.
+ * Used by init (creates the registry) and other pre-registry commands.
+ * Priority: project root (.git/.claude) → user home → cwd.
+ */
+export function resolveTargetRoot(cwd: string): ResolvedRoot {
+  const projectRoot = findProjectRoot(cwd);
+  if (projectRoot) {
+    return { root: projectRoot, scope: "project" };
+  }
+  const home = userHome();
+  if (home) {
+    return { root: home, scope: "user" };
+  }
+  return { root: cwd, scope: "project" };
+}
+
+/**
+ * Resolve skills root by walking up to find project root, then checking
+ * for registry existence at project scope, then user scope.
+ * Falls back to project root (or cwd) if neither has a registry.
  */
 export function resolveRoot(cwd: string): ResolvedRoot {
-  const projectReg = registryPath(cwd);
-  if (fs.existsSync(projectReg)) {
-    return { root: cwd, scope: "project" };
+  const projectRoot = findProjectRoot(cwd);
+
+  if (projectRoot) {
+    const projectReg = registryPath(projectRoot);
+    if (fs.existsSync(projectReg)) {
+      return { root: projectRoot, scope: "project" };
+    }
   }
 
-  const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
+  const home = userHome();
   if (home) {
     const userReg = registryPath(home);
     if (fs.existsSync(userReg)) {
@@ -82,8 +130,8 @@ export function resolveRoot(cwd: string): ResolvedRoot {
     }
   }
 
-  // Neither exists — default to project scope
-  return { root: cwd, scope: "project" };
+  // Neither exists — default to project scope at found root or cwd
+  return { root: projectRoot ?? cwd, scope: "project" };
 }
 
 // ── Registry I/O ────────────────────────────────────────────────────────

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { resolveRoot, GITHUB_REPO, EMBED_VERSION_FILE, EMBED_HOOKS_DIR, EMBED_COMMANDS, PLUGIN_NAME, embedCommandName } from "../src/types.js";
+import { resolveRoot, resolveTargetRoot, findProjectRoot, userHome, GITHUB_REPO, EMBED_VERSION_FILE, EMBED_HOOKS_DIR, EMBED_COMMANDS, PLUGIN_NAME, embedCommandName } from "../src/types.js";
 
 describe("resolveRoot", () => {
   let tmpDir: string;
@@ -17,10 +17,10 @@ describe("resolveRoot", () => {
   });
 
   it("returns project scope when project registry exists", () => {
-    const skillsDir = path.join(tmpDir, ".claude", "skills");
-    fs.mkdirSync(skillsDir, { recursive: true });
+    const skillsDirPath = path.join(tmpDir, ".claude", "skills");
+    fs.mkdirSync(skillsDirPath, { recursive: true });
     fs.writeFileSync(
-      path.join(skillsDir, "skill_registry.json"),
+      path.join(skillsDirPath, "skill_registry.json"),
       JSON.stringify({ version: "1", skills: [] }),
     );
 
@@ -28,8 +28,25 @@ describe("resolveRoot", () => {
     expect(result).toEqual({ root: tmpDir, scope: "project" });
   });
 
+  it("walks up to find project root from subdirectory", () => {
+    // Project root has .git + registry
+    fs.mkdirSync(path.join(tmpDir, ".git"));
+    const skillsDirPath = path.join(tmpDir, ".claude", "skills");
+    fs.mkdirSync(skillsDirPath, { recursive: true });
+    fs.writeFileSync(
+      path.join(skillsDirPath, "skill_registry.json"),
+      JSON.stringify({ version: "1", skills: [] }),
+    );
+
+    // Run from deep subdirectory
+    const subDir = path.join(tmpDir, "src", "components");
+    fs.mkdirSync(subDir, { recursive: true });
+
+    const result = resolveRoot(subDir);
+    expect(result).toEqual({ root: tmpDir, scope: "project" });
+  });
+
   it("falls back to user scope when project has no registry", () => {
-    // Simulate user-level registry via HOME override
     const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), "sf-home-"));
     vi.stubEnv("HOME", fakeHome);
 
@@ -46,13 +63,39 @@ describe("resolveRoot", () => {
     fs.rmSync(fakeHome, { recursive: true, force: true });
   });
 
-  it("defaults to project scope when neither scope has registry", () => {
+  it("falls back to user scope from subdirectory of non-project dir", () => {
+    // No .git or .claude anywhere in tmpDir
+    const subDir = path.join(tmpDir, "some", "deep");
+    fs.mkdirSync(subDir, { recursive: true });
+
+    const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), "sf-home-"));
+    vi.stubEnv("HOME", fakeHome);
+    const userSkillsDir = path.join(fakeHome, ".claude", "skills");
+    fs.mkdirSync(userSkillsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(userSkillsDir, "skill_registry.json"),
+      JSON.stringify({ version: "1", skills: [] }),
+    );
+
+    const result = resolveRoot(subDir);
+    expect(result).toEqual({ root: fakeHome, scope: "user" });
+
+    fs.rmSync(fakeHome, { recursive: true, force: true });
+  });
+
+  it("defaults to project root when neither scope has registry", () => {
+    // Has .git so findProjectRoot finds it, but no registry anywhere
+    fs.mkdirSync(path.join(tmpDir, ".git"));
+    const result = resolveRoot(tmpDir);
+    expect(result).toEqual({ root: tmpDir, scope: "project" });
+  });
+
+  it("defaults to cwd when no project root and no registry", () => {
     const result = resolveRoot(tmpDir);
     expect(result).toEqual({ root: tmpDir, scope: "project" });
   });
 
   it("prefers project over user when both exist", () => {
-    // Project registry
     const projectSkillsDir = path.join(tmpDir, ".claude", "skills");
     fs.mkdirSync(projectSkillsDir, { recursive: true });
     fs.writeFileSync(
@@ -60,7 +103,6 @@ describe("resolveRoot", () => {
       JSON.stringify({ version: "1", skills: [] }),
     );
 
-    // User registry
     const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), "sf-home-"));
     vi.stubEnv("HOME", fakeHome);
     const userSkillsDir = path.join(fakeHome, ".claude", "skills");
@@ -74,6 +116,141 @@ describe("resolveRoot", () => {
     expect(result).toEqual({ root: tmpDir, scope: "project" });
 
     fs.rmSync(fakeHome, { recursive: true, force: true });
+  });
+});
+
+describe("findProjectRoot", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "sf-findroot-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("returns dir itself when .git exists", () => {
+    fs.mkdirSync(path.join(tmpDir, ".git"));
+    expect(findProjectRoot(tmpDir)).toBe(tmpDir);
+  });
+
+  it("returns dir itself when .claude exists", () => {
+    fs.mkdirSync(path.join(tmpDir, ".claude"));
+    expect(findProjectRoot(tmpDir)).toBe(tmpDir);
+  });
+
+  it("walks up to find ancestor with .git", () => {
+    fs.mkdirSync(path.join(tmpDir, ".git"));
+    const subDir = path.join(tmpDir, "src", "deep", "nested");
+    fs.mkdirSync(subDir, { recursive: true });
+    expect(findProjectRoot(subDir)).toBe(tmpDir);
+  });
+
+  it("walks up to find ancestor with .claude", () => {
+    fs.mkdirSync(path.join(tmpDir, ".claude"));
+    const subDir = path.join(tmpDir, "lib");
+    fs.mkdirSync(subDir, { recursive: true });
+    expect(findProjectRoot(subDir)).toBe(tmpDir);
+  });
+
+  it("returns null when no marker found", () => {
+    expect(findProjectRoot(tmpDir)).toBeNull();
+  });
+
+  // existsSync returns false on EACCES — unreadable dir is skipped, not thrown
+  it.skipIf(process.platform === "win32")(
+    "skips unreadable directory and continues up",
+    () => {
+      // Project root at tmpDir
+      fs.mkdirSync(path.join(tmpDir, ".git"));
+
+      // Unreadable intermediate directory
+      const locked = path.join(tmpDir, "locked");
+      const child = path.join(locked, "deep");
+      fs.mkdirSync(child, { recursive: true });
+      fs.chmodSync(locked, 0o000);
+
+      try {
+        // Should skip locked/, walk up to tmpDir, find .git
+        expect(findProjectRoot(child)).toBe(tmpDir);
+      } finally {
+        fs.chmodSync(locked, 0o755);
+      }
+    },
+  );
+});
+
+describe("resolveTargetRoot", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "sf-target-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    vi.restoreAllMocks();
+  });
+
+  it("returns project scope when .git exists", () => {
+    fs.mkdirSync(path.join(tmpDir, ".git"));
+    expect(resolveTargetRoot(tmpDir)).toEqual({ root: tmpDir, scope: "project" });
+  });
+
+  it("returns project scope when .claude exists", () => {
+    fs.mkdirSync(path.join(tmpDir, ".claude"));
+    expect(resolveTargetRoot(tmpDir)).toEqual({ root: tmpDir, scope: "project" });
+  });
+
+  it("falls back to user scope when not a project dir", () => {
+    const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), "sf-home-"));
+    vi.stubEnv("HOME", fakeHome);
+
+    const result = resolveTargetRoot(tmpDir);
+    expect(result).toEqual({ root: fakeHome, scope: "user" });
+
+    fs.rmSync(fakeHome, { recursive: true, force: true });
+  });
+
+  it("walks up to find project root from subdirectory", () => {
+    fs.mkdirSync(path.join(tmpDir, ".git"));
+    const subDir = path.join(tmpDir, "src", "deep");
+    fs.mkdirSync(subDir, { recursive: true });
+
+    const result = resolveTargetRoot(subDir);
+    expect(result).toEqual({ root: tmpDir, scope: "project" });
+  });
+
+  it("falls back to cwd when not project dir and HOME is null", () => {
+    vi.stubEnv("HOME", "");
+    vi.stubEnv("USERPROFILE", "");
+
+    const result = resolveTargetRoot(tmpDir);
+    expect(result).toEqual({ root: tmpDir, scope: "project" });
+  });
+});
+
+describe("userHome", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("returns HOME env var", () => {
+    vi.stubEnv("HOME", "/fake/home");
+    expect(userHome()).toBe("/fake/home");
+  });
+
+  it("falls back to USERPROFILE when HOME is unset", () => {
+    vi.stubEnv("HOME", "");
+    vi.stubEnv("USERPROFILE", "/win/profile");
+    expect(userHome()).toBe("/win/profile");
+  });
+
+  it("returns null when both are unset", () => {
+    vi.stubEnv("HOME", "");
+    vi.stubEnv("USERPROFILE", "");
+    expect(userHome()).toBeNull();
   });
 });
 

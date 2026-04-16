@@ -67,11 +67,11 @@ Usage: skill-forge <command>
 
 Commands:
   install [--scope <project|user>]  Install plugin (prompts if no scope)
-  uninstall        Uninstall skill-forge plugin
-  list             Print skill registry for current project
+  uninstall        Uninstall skill-forge (project scope first, fallback to user)
+  list             Print skill registry (project scope first, fallback to user)
   registry clean   Remove orphaned registry entries
   doctor           Diagnose environment health
-  init             Initialize .claude/skills/ in current project
+  init             Initialize .claude/skills/ (project scope if .git/.claude exists, else user scope)
   upgrade          Sync embedded plugin to latest release
   upgrade-cli      Upgrade CLI to latest npm version
 
