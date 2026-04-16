@@ -1,5 +1,8 @@
-import { describe, it, expect } from "vitest";
-import { parseCommand } from "../src/main.js";
+import { createRequire } from "node:module";
+import { describe, it, expect, vi } from "vitest";
+import { parseCommand, PLUGIN_VERSION, printVersion } from "../src/main.js";
+
+const require = createRequire(import.meta.url);
 
 describe("parseCommand", () => {
   it("parses top-level command", () => {
@@ -50,5 +53,36 @@ describe("parseCommand", () => {
   it("returns unknown for unrecognized command", () => {
     const result = parseCommand(["node", "skill-forge", "foobar"]);
     expect(result).toEqual({ command: "unknown", args: ["foobar"] });
+  });
+});
+
+describe("PLUGIN_VERSION", () => {
+  it("is a valid semver string", () => {
+    expect(PLUGIN_VERSION).toMatch(/^\d+\.\d+\.\d+/);
+  });
+
+  it("matches .claude-plugin/plugin.json", () => {
+    const pluginJson = require("../../.claude-plugin/plugin.json") as { version: string };
+    expect(PLUGIN_VERSION).toBe(pluginJson.version);
+  });
+});
+
+describe("printVersion", () => {
+  it("prints cli and plugin versions on separate labeled lines", () => {
+    const cliVersion = (require("../package.json") as { version: string }).version;
+
+    const logs: string[] = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((...args: unknown[]) => {
+      logs.push(String(args[0]));
+    });
+
+    printVersion();
+
+    expect(logs).toEqual([
+      `cli:    ${cliVersion}`,
+      `plugin: ${PLUGIN_VERSION}`,
+    ]);
+
+    spy.mockRestore();
   });
 });

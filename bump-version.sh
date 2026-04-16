@@ -13,6 +13,7 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 PLUGIN_JSON="$ROOT/.claude-plugin/plugin.json"
 MARKETPLACE_JSON="$ROOT/.claude-plugin/marketplace.json"
 CLI_PACKAGE_JSON="$ROOT/cli/package.json"
+CLI_MAIN_TS="$ROOT/cli/src/main.ts"
 
 # Validate semver format
 validate_semver() {
@@ -93,10 +94,12 @@ if [[ -n "$NEW_PLUGIN" ]]; then
     sedi "s/\"version\": \"$ESC\"/\"version\": \"$NEW_PLUGIN\"/" "$PLUGIN_JSON"
     sedi "s/\"version\": \"$ESC\"/\"version\": \"$NEW_PLUGIN\"/" "$MARKETPLACE_JSON"
     sedi "s/^version = \"$ESC\"/version = \"$NEW_PLUGIN\"/" "$PYPROJECT_TOML"
+    sedi "s/PLUGIN_VERSION = \"$ESC\"/PLUGIN_VERSION = \"$NEW_PLUGIN\"/" "$CLI_MAIN_TS"
     echo "  Updated: .claude-plugin/plugin.json → $NEW_PLUGIN"
     echo "  Updated: .claude-plugin/marketplace.json → $NEW_PLUGIN"
     echo "  Updated: pyproject.toml → $NEW_PLUGIN"
-    CHANGED_FILES+=("$PLUGIN_JSON" "$MARKETPLACE_JSON" "$PYPROJECT_TOML")
+    echo "  Updated: cli/src/main.ts PLUGIN_VERSION → $NEW_PLUGIN"
+    CHANGED_FILES+=("$PLUGIN_JSON" "$MARKETPLACE_JSON" "$PYPROJECT_TOML" "$CLI_MAIN_TS")
     COMMIT_PARTS+=("plugin to $NEW_PLUGIN")
     DID_SOMETHING=1
   fi

@@ -18,6 +18,10 @@ import { run as upgradeCliRun } from "./commands/upgrade-cli.js";
 const require = createRequire(import.meta.url);
 const VERSION: string = (require("../package.json") as { version: string }).version;
 
+// Synced by bump-version.sh when plugin version changes.
+// Cannot read .claude-plugin/plugin.json at runtime — it's outside the npm package.
+export const PLUGIN_VERSION = "0.5.0";
+
 const KNOWN_COMMANDS = new Set([
   "install",
   "uninstall",
@@ -51,6 +55,11 @@ export function parseCommand(argv: string[]): ParsedCommand {
   return { command: "unknown", args: [first] };
 }
 
+export function printVersion(): void {
+  console.log(`cli:    ${VERSION}`);
+  console.log(`plugin: ${PLUGIN_VERSION}`);
+}
+
 function printHelp(): void {
   console.log(`skill-forge v${VERSION}
 
@@ -81,7 +90,7 @@ async function main(): Promise<void> {
       break;
 
     case "version":
-      console.log(VERSION);
+      printVersion();
       break;
 
     case "install":
