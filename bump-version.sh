@@ -72,6 +72,8 @@ fi
 
 PYPROJECT_TOML="$ROOT/pyproject.toml"
 DID_SOMETHING=0
+CHANGED_FILES=()
+COMMIT_PARTS=()
 
 # Cross-platform sed in-place (macOS uses BSD sed, Linux uses GNU sed)
 sedi() {
@@ -94,6 +96,8 @@ if [[ -n "$NEW_PLUGIN" ]]; then
     echo "  Updated: .claude-plugin/plugin.json → $NEW_PLUGIN"
     echo "  Updated: .claude-plugin/marketplace.json → $NEW_PLUGIN"
     echo "  Updated: pyproject.toml → $NEW_PLUGIN"
+    CHANGED_FILES+=("$PLUGIN_JSON" "$MARKETPLACE_JSON" "$PYPROJECT_TOML")
+    COMMIT_PARTS+=("plugin to $NEW_PLUGIN")
     DID_SOMETHING=1
   fi
 else
@@ -110,6 +114,8 @@ if [[ -n "$NEW_CLI" ]]; then
     echo "  Updated: cli/package.json → $NEW_CLI"
     (cd "$ROOT/cli" && npm install --package-lock-only --ignore-scripts 2>/dev/null)
     echo "  Updated: cli/package-lock.json"
+    CHANGED_FILES+=("$CLI_PACKAGE_JSON" "$ROOT/cli/package-lock.json")
+    COMMIT_PARTS+=("CLI to $NEW_CLI")
     DID_SOMETHING=1
   fi
 else
@@ -117,5 +123,9 @@ else
 fi
 
 if [[ $DID_SOMETHING -eq 1 ]]; then
+  COMMIT_MSG="Bump $(IFS=', '; echo "${COMMIT_PARTS[*]}")"
+  git add "${CHANGED_FILES[@]}"
+  git commit -m "$COMMIT_MSG"
+  echo "  Committed: $COMMIT_MSG"
   echo "Done."
 fi

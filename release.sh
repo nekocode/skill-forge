@@ -21,6 +21,18 @@ if ! git diff --quiet HEAD; then
   exit 1
 fi
 
+# Check local branch is pushed to remote
+UPSTREAM=$(git rev-parse --abbrev-ref --symbolic-full-name @{upstream} 2>/dev/null || true)
+if [[ -z "$UPSTREAM" ]]; then
+  echo "Error: no upstream branch configured. Run: git push -u origin $(git branch --show-current)" >&2
+  exit 1
+fi
+AHEAD=$(git rev-list "$UPSTREAM..HEAD" --count)
+if [[ "$AHEAD" -gt 0 ]]; then
+  echo "Error: $AHEAD commit(s) not pushed to remote. Run: git push" >&2
+  exit 1
+fi
+
 # Check tag doesn't already exist
 if git rev-parse "$TAG" >/dev/null 2>&1; then
   echo "Error: tag $TAG already exists." >&2
