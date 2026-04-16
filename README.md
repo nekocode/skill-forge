@@ -118,7 +118,8 @@ npm install -g @nekocode/skill-forge
 | `skill-forge registry clean` | Remove orphaned registry entries |
 | `skill-forge doctor` | Diagnose environment (claude CLI, plugin, Python, project structure) |
 | `skill-forge init` | Initialize `.claude/skills/` with empty registry |
-| `skill-forge upgrade` | Upgrade CLI to latest version |
+| `skill-forge upgrade` | Sync embedded plugin to latest release (project scope) |
+| `skill-forge upgrade-cli` | Upgrade CLI to latest npm version |
 
 ## Comparison
 

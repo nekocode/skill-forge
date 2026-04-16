@@ -118,7 +118,8 @@ npm install -g @nekocode/skill-forge
 | `skill-forge registry clean` | 清理孤儿 registry 条目 |
 | `skill-forge doctor` | 诊断环境（claude CLI / plugin / Python / 项目结构） |
 | `skill-forge init` | 初始化 `.claude/skills/` + 空注册表 |
-| `skill-forge upgrade` | 升级 CLI 到最新版本 |
+| `skill-forge upgrade` | 同步 embed 文件到最新 release（project scope） |
+| `skill-forge upgrade-cli` | 升级 CLI npm 包到最新版本 |
 
 ## 对比
 
