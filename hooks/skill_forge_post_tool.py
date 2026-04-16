@@ -11,16 +11,14 @@ This hook never blocks (no exit 2). It's a side-effect hook.
 """
 
 import json
-import os
 import sys
 from datetime import date
 from pathlib import Path
 
-# shared module lives under skills/skill-forge/scripts/
-_plugin_root = Path(os.environ.get(
-    "CLAUDE_PLUGIN_ROOT", str(Path(__file__).resolve().parent.parent)
-))
-sys.path.insert(0, str(_plugin_root / "skills" / "skill-forge" / "scripts"))
+# Bootstrap: resolve scripts path from shared _bootstrap.py (avoids duplication)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _bootstrap import resolve_scripts_path  # noqa: E402
+sys.path.insert(0, resolve_scripts_path())
 from shared import (  # noqa: E402
     FILE_WRITE_TOOLS,
     load_registry,

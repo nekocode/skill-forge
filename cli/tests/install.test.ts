@@ -1,6 +1,21 @@
+vi.mock("../src/commands/embed.js", () => ({
+  embedInstall: vi.fn(),
+}));
+
+vi.mock("node:child_process", () => ({
+  execSync: vi.fn(),
+}));
+
+vi.mock("node:readline", () => ({
+  createInterface: vi.fn(),
+}));
+
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { parseScope, promptScope } from "../src/commands/install.js";
 import { createInterface } from "node:readline";
+import { embedInstall } from "../src/commands/embed.js";
+
+const mockEmbedInstall = vi.mocked(embedInstall);
 
 // ── parseScope ──────────────────────────────────────────────────────────
 
@@ -33,10 +48,6 @@ describe("parseScope", () => {
 });
 
 // ── promptScope ─────────────────────────────────────────────────────────
-
-vi.mock("node:readline", () => ({
-  createInterface: vi.fn(),
-}));
 
 function mockReadline(answer: string) {
   const closeFn = vi.fn();
@@ -86,5 +97,27 @@ describe("promptScope", () => {
     });
     await expect(promptScope()).rejects.toThrow("exit");
     expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+});
+
+// ── install run ─────────────────────────────────────────────────────────
+
+describe("install run", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllMocks();
+  });
+
+  it("calls embedInstall for project scope", async () => {
+    mockEmbedInstall.mockReturnValue("0.5.0");
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    // Dynamic import to get the run function with mocks active
+    const { run } = await import("../src/commands/install.js");
+    await run(["--scope", "project"]);
+
+    expect(mockEmbedInstall).toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("Embedded skill-forge 0.5.0"));
+    logSpy.mockRestore();
   });
 });

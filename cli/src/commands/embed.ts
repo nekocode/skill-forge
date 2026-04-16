@@ -1,0 +1,344 @@
+// Core embed module: download tarball from GitHub release, extract,
+// install files into .claude/, convert hook paths, merge settings,
+// manage version.json, detect and remove embed install.
+
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
+import { execSync } from "node:child_process";
+
+import {
+  GITHUB_REPO,
+  EMBED_VERSION_FILE,
+  EMBED_HOOKS_DIR,
+  EMBED_COMMANDS,
+} from "../types.js";
+
+// ── Types ────────────────────────────────────────────────────────────────
+
+export interface EmbedVersion {
+  version: string;
+  installed: string;
+}
+
+// ── Path rewrite constants ───────────────────────────────────────────────
+
+const PLUGIN_ROOT_HOOKS = "${CLAUDE_PLUGIN_ROOT}/hooks/";
+const EMBED_HOOKS_PATH = "${CLAUDE_PROJECT_DIR}/.claude/hooks/skill-forge/";
+
+const PLUGIN_ROOT_SKILLS = "${CLAUDE_PLUGIN_ROOT}/skills/";
+const EMBED_SKILLS_PATH = "${CLAUDE_PROJECT_DIR}/.claude/skills/";
+
+// Marker used to identify skill-forge entries in settings.json
+const SF_MARKER = ".claude/hooks/skill-forge/";
+
+/** True if a settings.json hook entry belongs to skill-forge. */
+function isSkillForgeEntry(entry: any): boolean {
+  return JSON.stringify(entry).includes(SF_MARKER);
+}
+
+// ── convertHooksForEmbed ─────────────────────────────────────────────────
+
+/**
+ * Rewrite hook command paths from plugin-mode variables to embed-mode paths.
+ * ${CLAUDE_PLUGIN_ROOT}/hooks/xxx.py → ${CLAUDE_PROJECT_DIR}/.claude/hooks/skill-forge/xxx.py
+ * ${CLAUDE_PLUGIN_ROOT}/skills/...  → ${CLAUDE_PROJECT_DIR}/.claude/skills/...
+ */
+export function convertHooksForEmbed(pluginHooks: any): any {
+  let json = JSON.stringify(pluginHooks);
+  // Replace hooks path first (more specific)
+  json = json.split(PLUGIN_ROOT_HOOKS).join(EMBED_HOOKS_PATH);
+  // Replace skills path
+  json = json.split(PLUGIN_ROOT_SKILLS).join(EMBED_SKILLS_PATH);
+  return JSON.parse(json);
+}
+
+// ── mergeHooksIntoSettings ───────────────────────────────────────────────
+
+/**
+ * Merge embed hook entries into existing settings.json content.
+ * - Removes any existing skill-forge entries (identified by SF_MARKER)
+ * - Appends new embed entries per event
+ * - Preserves all non-hook settings
+ */
+export function mergeHooksIntoSettings(existing: any, embedHooks: any): any {
+  const result = { ...existing };
+  const existingHooks: Record<string, any[]> = { ...(result.hooks ?? {}) };
+
+  // Strip all existing SF entries from every event
+  for (const event of Object.keys(existingHooks)) {
+    existingHooks[event] = (existingHooks[event] ?? []).filter(
+      (entry: any) => !isSkillForgeEntry(entry),
+    );
+  }
+
+  // Append new SF entries
+  const newHooks: Record<string, any[]> = embedHooks.hooks ?? {};
+  for (const [event, entries] of Object.entries(newHooks)) {
+    existingHooks[event] = [...(existingHooks[event] ?? []), ...entries];
+  }
+
+  result.hooks = existingHooks;
+  return result;
+}
+
+// ── writeVersionFile ─────────────────────────────────────────────────────
+
+/** Write version.json with version + ISO timestamp. Auto-creates parent dirs. */
+export function writeVersionFile(filePath: string, version: string): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const data: EmbedVersion = {
+    version,
+    installed: new Date().toISOString(),
+  };
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+}
+
+// ── readVersionFile ──────────────────────────────────────────────────────
+
+/** Read version.json. Returns null on any error (missing, bad JSON, etc). */
+export function readVersionFile(filePath: string): EmbedVersion | null {
+  try {
+    const raw = fs.readFileSync(filePath, "utf-8");
+    return JSON.parse(raw) as EmbedVersion;
+  } catch {
+    return null;
+  }
+}
+
+// ── detectEmbedInstall ───────────────────────────────────────────────────
+
+/** Returns true if .claude/hooks/skill-forge/version.json exists. */
+export function detectEmbedInstall(projectRoot: string): boolean {
+  return fs.existsSync(path.join(projectRoot, EMBED_VERSION_FILE));
+}
+
+// ── removeEmbedFiles ─────────────────────────────────────────────────────
+
+/**
+ * Remove all skill-forge embed files from a project root.
+ * - Removes only SF command files (scan.md, create.md, improve.md)
+ * - Removes .claude/skills/skill-forge/
+ * - Removes .claude/hooks/skill-forge/
+ * - Strips SF hooks from .claude/settings.json
+ * - Cleans up empty event arrays and empty hooks object
+ */
+export function removeEmbedFiles(projectRoot: string): void {
+  // Remove SF command files
+  const commandsDir = path.join(projectRoot, ".claude", "commands");
+  for (const file of EMBED_COMMANDS) {
+    const filePath = path.join(commandsDir, file);
+    try {
+      fs.rmSync(filePath, { force: true });
+    } catch {
+      // Ignore missing
+    }
+  }
+
+  // Remove SF skills dir
+  const sfSkillsDir = path.join(projectRoot, ".claude", "skills", "skill-forge");
+  fs.rmSync(sfSkillsDir, { recursive: true, force: true });
+
+  // Remove SF hooks dir
+  const sfHooksDir = path.join(projectRoot, EMBED_HOOKS_DIR);
+  fs.rmSync(sfHooksDir, { recursive: true, force: true });
+
+  // Update settings.json — strip SF hooks
+  const settingsPath = path.join(projectRoot, ".claude", "settings.json");
+  if (!fs.existsSync(settingsPath)) return;
+
+  let settings: any;
+  try {
+    settings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
+  } catch {
+    return; // Corrupted settings — leave it alone
+  }
+
+  if (!settings.hooks) {
+    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+    return;
+  }
+
+  const hooks: Record<string, any[]> = settings.hooks;
+
+  // Strip SF entries from each event
+  for (const event of Object.keys(hooks)) {
+    hooks[event] = (hooks[event] ?? []).filter(
+      (entry: any) => !isSkillForgeEntry(entry),
+    );
+    // Delete empty event arrays
+    if (hooks[event]!.length === 0) {
+      delete hooks[event];
+    }
+  }
+
+  // Delete empty hooks object
+  if (Object.keys(hooks).length === 0) {
+    delete settings.hooks;
+  }
+
+  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+}
+
+// ── copyDirRecursive (internal) ───────────────────────────────────────────
+
+/** Recursively copy src directory into dest. Creates dest if missing. */
+function copyDirRecursive(src: string, dest: string): void {
+  fs.mkdirSync(dest, { recursive: true });
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    const srcPath = path.join(src, entry.name);
+    const destPath = path.join(dest, entry.name);
+    if (entry.isDirectory()) {
+      copyDirRecursive(srcPath, destPath);
+    } else {
+      fs.copyFileSync(srcPath, destPath);
+    }
+  }
+}
+
+// ── embedInstall ─────────────────────────────────────────────────────────
+
+/**
+ * Full embed install flow:
+ * 1. Fetch latest release tag via gh CLI
+ * 2. Download tarball to temp dir
+ * 3. Extract tarball
+ * 4. Copy files into .claude/
+ * 5. Convert hooks + merge into settings.json
+ * 6. Write version.json
+ * 7. Clean up temp dir (always, via finally)
+ * Returns installed version string.
+ */
+export function embedInstall(projectRoot: string, tag?: string): string {
+  // Fetch latest release tag unless caller already resolved it
+  if (!tag) {
+    tag = execSync(
+      `gh api repos/${GITHUB_REPO}/releases/latest --jq '.tag_name'`,
+      { encoding: "utf-8" },
+    ).trim();
+  }
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "sf-embed-install-"));
+
+  try {
+    // Download tarball
+    execSync(
+      `gh release download ${tag} --repo ${GITHUB_REPO} --pattern "skill-forge-*.tar.gz" --dir "${tmpDir}"`,
+      { encoding: "utf-8" },
+    );
+
+    // Find the downloaded tarball
+    const tarballs = fs.readdirSync(tmpDir).filter((f) => f.endsWith(".tar.gz"));
+    if (tarballs.length === 0) {
+      throw new Error("No tarball found after gh release download");
+    }
+    const tarball = path.join(tmpDir, tarballs[0]!);
+
+    // Extract tarball into tmpDir
+    execSync(`tar -xzf "${tarball}" -C "${tmpDir}"`, { encoding: "utf-8" });
+
+    // Detect extraction root: prefer directory named after the tarball or just tmpDir
+    // Release tarballs may extract into a subdirectory — find commands/
+    const extractRoot = findExtractRoot(tmpDir);
+
+    // Version derived from tag (tarball doesn't include .claude-plugin/)
+    const version = tag.replace(/^v/, "");
+
+    // Copy commands/*.md → .claude/commands/
+    const srcCommandsDir = path.join(extractRoot, "commands");
+    const destCommandsDir = path.join(projectRoot, ".claude", "commands");
+    fs.mkdirSync(destCommandsDir, { recursive: true });
+    if (fs.existsSync(srcCommandsDir)) {
+      for (const file of EMBED_COMMANDS) {
+        const src = path.join(srcCommandsDir, file);
+        if (fs.existsSync(src)) {
+          fs.copyFileSync(src, path.join(destCommandsDir, file));
+        }
+      }
+    }
+
+    // Copy skills/skill-forge/ → .claude/skills/skill-forge/
+    const srcSkillsDir = path.join(extractRoot, "skills", "skill-forge");
+    const destSkillsDir = path.join(projectRoot, ".claude", "skills", "skill-forge");
+    if (fs.existsSync(srcSkillsDir)) {
+      copyDirRecursive(srcSkillsDir, destSkillsDir);
+    }
+
+    // Copy hooks/*.py → .claude/hooks/skill-forge/
+    const srcHooksDir = path.join(extractRoot, "hooks");
+    const destHooksDir = path.join(projectRoot, EMBED_HOOKS_DIR);
+    fs.mkdirSync(destHooksDir, { recursive: true });
+    if (fs.existsSync(srcHooksDir)) {
+      for (const entry of fs.readdirSync(srcHooksDir, { withFileTypes: true })) {
+        if (!entry.isDirectory() && entry.name.endsWith(".py")) {
+          fs.copyFileSync(
+            path.join(srcHooksDir, entry.name),
+            path.join(destHooksDir, entry.name),
+          );
+        }
+      }
+    }
+
+    // Read hooks.json, convert paths, merge into settings.json
+    const hooksJsonPath = path.join(srcHooksDir, "hooks.json");
+    if (fs.existsSync(hooksJsonPath)) {
+      const rawHooks = JSON.parse(fs.readFileSync(hooksJsonPath, "utf-8"));
+      const embedHooks = convertHooksForEmbed(rawHooks);
+
+      const settingsPath = path.join(projectRoot, ".claude", "settings.json");
+      let existingSettings: any = {};
+      if (fs.existsSync(settingsPath)) {
+        try {
+          existingSettings = JSON.parse(fs.readFileSync(settingsPath, "utf-8"));
+        } catch {
+          // Corrupted settings — start fresh
+        }
+      }
+
+      const merged = mergeHooksIntoSettings(existingSettings, embedHooks);
+      fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+      fs.writeFileSync(settingsPath, JSON.stringify(merged, null, 2));
+    }
+
+    // Write version.json
+    const versionFilePath = path.join(projectRoot, EMBED_VERSION_FILE);
+    writeVersionFile(versionFilePath, version);
+
+    return version;
+  } finally {
+    // Always clean up temp dir
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
+// ── findExtractRoot (internal) ────────────────────────────────────────────
+
+/**
+ * Locate the root of extracted tarball content within tmpDir.
+ * Tarballs may extract into a subdirectory (e.g., skill-forge-0.5.0/).
+ * Looks for a directory containing "commands/" or "hooks/".
+ * Falls back to tmpDir itself.
+ */
+function findExtractRoot(tmpDir: string): string {
+  // Check tmpDir directly first
+  if (
+    fs.existsSync(path.join(tmpDir, "commands")) ||
+    fs.existsSync(path.join(tmpDir, "hooks"))
+  ) {
+    return tmpDir;
+  }
+
+  // Check immediate subdirectories
+  for (const entry of fs.readdirSync(tmpDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const subDir = path.join(tmpDir, entry.name);
+    if (
+      fs.existsSync(path.join(subDir, "commands")) ||
+      fs.existsSync(path.join(subDir, "hooks"))
+    ) {
+      return subDir;
+    }
+  }
+
+  return tmpDir;
+}

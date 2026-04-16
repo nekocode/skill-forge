@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { resolveRoot } from "../src/types.js";
+import { resolveRoot, GITHUB_REPO, EMBED_VERSION_FILE, EMBED_HOOKS_DIR, EMBED_COMMANDS } from "../src/types.js";
 
 describe("resolveRoot", () => {
   let tmpDir: string;
@@ -74,5 +74,23 @@ describe("resolveRoot", () => {
     expect(result).toEqual({ root: tmpDir, scope: "project" });
 
     fs.rmSync(fakeHome, { recursive: true, force: true });
+  });
+});
+
+describe("embed constants", () => {
+  it("exports GitHub repo identifier", () => {
+    expect(GITHUB_REPO).toBe("nekocode/skill-forge");
+  });
+
+  it("exports embed version file path", () => {
+    expect(EMBED_VERSION_FILE).toBe(".claude/hooks/skill-forge/version.json");
+  });
+
+  it("exports embed hooks directory", () => {
+    expect(EMBED_HOOKS_DIR).toBe(".claude/hooks/skill-forge");
+  });
+
+  it("exports embed command filenames", () => {
+    expect(EMBED_COMMANDS).toEqual(["scan.md", "create.md", "improve.md"]);
   });
 });

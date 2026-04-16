@@ -73,7 +73,7 @@ describe("doctor command", () => {
 
     const results = runDoctor(tmpDir);
     const pluginCheck = results.find((r: CheckResult) =>
-      r.name.includes("plugin"),
+      r.name.includes("skill-forge"),
     );
     expect(pluginCheck?.status).toBe("fail");
   });
@@ -93,5 +93,34 @@ describe("doctor command", () => {
       r.name === "skills directory",
     );
     expect(skillsDirCheck?.status).toBe("warn");
+  });
+
+  it("passes install check when embed install detected", () => {
+    // claude plugin list returns nothing relevant, but embed version file exists
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (typeof cmd !== "string") return "";
+      if (cmd.includes("which claude") || cmd.includes("where claude"))
+        return "/usr/local/bin/claude";
+      if (cmd.includes("plugin list")) return "some-other-plugin  1.0.0";
+      if (cmd.includes("python3 --version")) return "Python 3.12.0";
+      return "";
+    });
+
+    // Create embed version file
+    const hooksDir = path.join(tmpDir, ".claude", "hooks", "skill-forge");
+    fs.mkdirSync(hooksDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(hooksDir, "version.json"),
+      JSON.stringify({ version: "0.5.0", installed: "2026-04-15T00:00:00Z" }),
+    );
+    fs.mkdirSync(path.join(tmpDir, ".claude", "skills"), { recursive: true });
+
+    const results = runDoctor(tmpDir);
+    const installCheck = results.find((r: CheckResult) =>
+      r.name.includes("skill-forge"),
+    );
+    expect(installCheck?.status).toBe("pass");
+    expect(installCheck?.message).toContain("Embedded");
+    expect(installCheck?.message).toContain("0.5.0");
   });
 });

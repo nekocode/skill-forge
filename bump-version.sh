@@ -1,49 +1,109 @@
 #!/usr/bin/env bash
-# Bump version across plugin.json, marketplace.json, cli/package.json, cli/package-lock.json.
-# Usage: ./bump-version.sh [new-version]
+# Bump plugin and/or CLI versions independently.
+# Usage:
+#   ./bump-version.sh                         # interactive
+#   ./bump-version.sh --plugin <ver>          # plugin only
+#   ./bump-version.sh --cli <ver>             # CLI only
+#   ./bump-version.sh --plugin <ver> --cli <ver>
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 
-FILES=(
-  "$ROOT/.claude-plugin/plugin.json"
-  "$ROOT/.claude-plugin/marketplace.json"
-  "$ROOT/cli/package.json"
-)
+PLUGIN_JSON="$ROOT/.claude-plugin/plugin.json"
+MARKETPLACE_JSON="$ROOT/.claude-plugin/marketplace.json"
+CLI_PACKAGE_JSON="$ROOT/cli/package.json"
 
-# Read current version from plugin.json (single source of truth)
-CURRENT=$(grep -o '"version": "[^"]*"' "$ROOT/.claude-plugin/plugin.json" | head -1 | sed 's/"version": "//;s/"//')
+# Validate semver format
+validate_semver() {
+  local ver="$1"
+  if [[ ! "$ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
+    echo "Error: invalid semver — $ver" >&2
+    exit 1
+  fi
+}
 
-echo "Current version: $CURRENT"
+# Read current versions
+CURRENT_PLUGIN=$(grep -o '"version": "[^"]*"' "$PLUGIN_JSON" | head -1 | sed 's/"version": "//;s/"//')
+CURRENT_CLI=$(grep -o '"version": "[^"]*"' "$CLI_PACKAGE_JSON" | head -1 | sed 's/"version": "//;s/"//')
 
-if [[ $# -ge 1 ]]; then
-  NEW="$1"
-else
-  printf "New version: "
-  read -r NEW
+printf "Current plugin version: %s\n" "$CURRENT_PLUGIN"
+printf "Current CLI version:    %s\n" "$CURRENT_CLI"
+echo ""
+
+# Parse flags
+NEW_PLUGIN=""
+NEW_CLI=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --plugin)
+      NEW_PLUGIN="${2:-}"
+      shift 2
+      ;;
+    --cli)
+      NEW_CLI="${2:-}"
+      shift 2
+      ;;
+    *)
+      echo "Error: unknown argument — $1" >&2
+      exit 1
+      ;;
+  esac
+done
+
+# Interactive mode if no flags given
+if [[ -z "$NEW_PLUGIN" && -z "$NEW_CLI" ]]; then
+  printf "New plugin version (enter to skip): "
+  read -r NEW_PLUGIN
+  printf "New CLI version (enter to skip): "
+  read -r NEW_CLI
 fi
 
-if [[ ! "$NEW" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
-  echo "Error: invalid semver — $NEW" >&2
-  exit 1
-fi
+# Validate non-empty inputs
+[[ -n "$NEW_PLUGIN" ]] && validate_semver "$NEW_PLUGIN"
+[[ -n "$NEW_CLI" ]] && validate_semver "$NEW_CLI"
 
-if [[ "$NEW" == "$CURRENT" ]]; then
-  echo "Version unchanged."
+# Nothing to do
+if [[ -z "$NEW_PLUGIN" && -z "$NEW_CLI" ]]; then
+  echo "Nothing to bump."
   exit 0
 fi
 
-# Escape dots for sed regex
-CURRENT_ESC="${CURRENT//./\\.}"
+DID_SOMETHING=0
 
-for f in "${FILES[@]}"; do
-  sed -i '' "s/\"version\": \"$CURRENT_ESC\"/\"version\": \"$NEW\"/" "$f"
-  echo "  Updated: ${f#"$ROOT/"}"
-done
+# Bump plugin version → plugin.json + marketplace.json
+if [[ -n "$NEW_PLUGIN" ]]; then
+  if [[ "$NEW_PLUGIN" == "$CURRENT_PLUGIN" ]]; then
+    echo "  Plugin version unchanged."
+  else
+    ESC="${CURRENT_PLUGIN//./\\.}"
+    sed -i '' "s/\"version\": \"$ESC\"/\"version\": \"$NEW_PLUGIN\"/" "$PLUGIN_JSON"
+    sed -i '' "s/\"version\": \"$ESC\"/\"version\": \"$NEW_PLUGIN\"/" "$MARKETPLACE_JSON"
+    echo "  Updated: .claude-plugin/plugin.json → $NEW_PLUGIN"
+    echo "  Updated: .claude-plugin/marketplace.json → $NEW_PLUGIN"
+    DID_SOMETHING=1
+  fi
+else
+  echo "  Plugin version skipped."
+fi
 
-# Sync package-lock.json
-(cd "$ROOT/cli" && npm install --package-lock-only --ignore-scripts 2>/dev/null)
-echo "  Updated: cli/package-lock.json"
+# Bump CLI version → cli/package.json + package-lock.json sync
+if [[ -n "$NEW_CLI" ]]; then
+  if [[ "$NEW_CLI" == "$CURRENT_CLI" ]]; then
+    echo "  CLI version unchanged."
+  else
+    ESC="${CURRENT_CLI//./\\.}"
+    sed -i '' "s/\"version\": \"$ESC\"/\"version\": \"$NEW_CLI\"/" "$CLI_PACKAGE_JSON"
+    echo "  Updated: cli/package.json → $NEW_CLI"
+    (cd "$ROOT/cli" && npm install --package-lock-only --ignore-scripts 2>/dev/null)
+    echo "  Updated: cli/package-lock.json"
+    DID_SOMETHING=1
+  fi
+else
+  echo "  CLI version skipped."
+fi
 
-echo "Done: $CURRENT -> $NEW"
+if [[ $DID_SOMETHING -eq 1 ]]; then
+  echo "Done."
+fi

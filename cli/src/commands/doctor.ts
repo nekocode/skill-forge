@@ -3,7 +3,9 @@
 
 import { execSync } from "node:child_process";
 import fs from "node:fs";
-import { skillsDir, resolveRoot } from "../types.js";
+import path from "node:path";
+import { skillsDir, resolveRoot, EMBED_VERSION_FILE } from "../types.js";
+import { readVersionFile } from "./embed.js";
 
 // Prevent indefinite hang if a subprocess blocks (e.g. claude plugin list doing network I/O)
 const EXEC_TIMEOUT_MS = 10_000;
@@ -29,12 +31,20 @@ function checkClaudeCli(): CheckResult {
   }
 }
 
-function checkPluginInstalled(): CheckResult {
-  const name = "skill-forge plugin";
+function checkPluginInstalled(cwd: string): CheckResult {
+  const name = "skill-forge install";
+
+  // Check embed install first (null = not installed)
+  const embedData = readVersionFile(path.join(cwd, EMBED_VERSION_FILE));
+  if (embedData) {
+    return { name, status: "pass", message: `Embedded v${embedData.version}` };
+  }
+
+  // Fall back to plugin check
   try {
     const output = execSync("claude plugin list", { encoding: "utf-8", timeout: EXEC_TIMEOUT_MS });
     if (output.split("\n").some((line) => line.trim().startsWith("skill-forge"))) {
-      return { name, status: "pass", message: "Installed" };
+      return { name, status: "pass", message: "Plugin installed" };
     }
     return {
       name,
@@ -45,7 +55,7 @@ function checkPluginInstalled(): CheckResult {
     return {
       name,
       status: "fail",
-      message: "Could not run `claude plugin list` — is claude CLI available?",
+      message: "Not found. Run: skill-forge install",
     };
   }
 }
@@ -80,7 +90,7 @@ function checkSkillsDir(cwd: string): CheckResult {
 export function runDoctor(projectRoot: string): CheckResult[] {
   return [
     checkClaudeCli(),
-    checkPluginInstalled(),
+    checkPluginInstalled(projectRoot),
     checkPython(),
     checkSkillsDir(projectRoot),
   ];

@@ -42,6 +42,11 @@ describe("parseCommand", () => {
     expect(result).toEqual({ command: "upgrade", args: [] });
   });
 
+  it("parses upgrade-cli command", () => {
+    const result = parseCommand(["node", "skill-forge", "upgrade-cli"]);
+    expect(result).toEqual({ command: "upgrade-cli", args: [] });
+  });
+
   it("returns unknown for unrecognized command", () => {
     const result = parseCommand(["node", "skill-forge", "foobar"]);
     expect(result).toEqual({ command: "unknown", args: ["foobar"] });

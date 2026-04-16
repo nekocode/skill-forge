@@ -12,6 +12,7 @@ import { clean as registryClean } from "./commands/registry.js";
 import { runDoctor, formatResults } from "./commands/doctor.js";
 import { resolveRoot } from "./types.js";
 import { run as upgradeRun } from "./commands/upgrade.js";
+import { run as upgradeCliRun } from "./commands/upgrade-cli.js";
 
 // Single source of truth — reads version from package.json
 const require = createRequire(import.meta.url);
@@ -25,6 +26,7 @@ const KNOWN_COMMANDS = new Set([
   "doctor",
   "init",
   "upgrade",
+  "upgrade-cli",
 ]);
 
 interface ParsedCommand {
@@ -61,7 +63,8 @@ Commands:
   registry clean   Remove orphaned registry entries
   doctor           Diagnose environment health
   init             Initialize .claude/skills/ in current project
-  upgrade          Upgrade CLI to latest version
+  upgrade          Sync embedded plugin to latest release
+  upgrade-cli      Upgrade CLI to latest npm version
 
 Options:
   --help, -h       Show this help
@@ -86,7 +89,7 @@ async function main(): Promise<void> {
       break;
 
     case "uninstall":
-      uninstallRun();
+      uninstallRun(cwd);
       break;
 
     case "list":
@@ -130,7 +133,11 @@ async function main(): Promise<void> {
       break;
 
     case "upgrade":
-      upgradeRun();
+      upgradeRun(cwd);
+      break;
+
+    case "upgrade-cli":
+      upgradeCliRun();
       break;
 
     default:

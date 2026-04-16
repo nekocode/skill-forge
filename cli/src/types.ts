@@ -30,6 +30,13 @@ export const EMPTY_REGISTRY: SkillRegistry = { version: "1", skills: [] };
 export const PLUGIN_NAME = "skill-forge";
 export const MARKETPLACE_SOURCE = "nekocode/skill-forge";
 
+// ── Embed mode constants ────────────────────────────────────────────────
+
+export const GITHUB_REPO = "nekocode/skill-forge";
+export const EMBED_VERSION_FILE = ".claude/hooks/skill-forge/version.json";
+export const EMBED_HOOKS_DIR = ".claude/hooks/skill-forge";
+export const EMBED_COMMANDS = ["scan.md", "create.md", "improve.md"];
+
 // ── Path helpers ────────────────────────────────────────────────────────
 
 export function skillsDir(root: string): string {
