@@ -70,18 +70,30 @@ if [[ -z "$NEW_PLUGIN" && -z "$NEW_CLI" ]]; then
   exit 0
 fi
 
+PYPROJECT_TOML="$ROOT/pyproject.toml"
 DID_SOMETHING=0
 
-# Bump plugin version → plugin.json + marketplace.json
+# Cross-platform sed in-place (macOS uses BSD sed, Linux uses GNU sed)
+sedi() {
+  if sed --version >/dev/null 2>&1; then
+    sed -i "$@"   # GNU sed
+  else
+    sed -i '' "$@" # BSD sed (macOS)
+  fi
+}
+
+# Bump plugin version → plugin.json + marketplace.json + pyproject.toml
 if [[ -n "$NEW_PLUGIN" ]]; then
   if [[ "$NEW_PLUGIN" == "$CURRENT_PLUGIN" ]]; then
     echo "  Plugin version unchanged."
   else
     ESC="${CURRENT_PLUGIN//./\\.}"
-    sed -i '' "s/\"version\": \"$ESC\"/\"version\": \"$NEW_PLUGIN\"/" "$PLUGIN_JSON"
-    sed -i '' "s/\"version\": \"$ESC\"/\"version\": \"$NEW_PLUGIN\"/" "$MARKETPLACE_JSON"
+    sedi "s/\"version\": \"$ESC\"/\"version\": \"$NEW_PLUGIN\"/" "$PLUGIN_JSON"
+    sedi "s/\"version\": \"$ESC\"/\"version\": \"$NEW_PLUGIN\"/" "$MARKETPLACE_JSON"
+    sedi "s/^version = \"$ESC\"/version = \"$NEW_PLUGIN\"/" "$PYPROJECT_TOML"
     echo "  Updated: .claude-plugin/plugin.json → $NEW_PLUGIN"
     echo "  Updated: .claude-plugin/marketplace.json → $NEW_PLUGIN"
+    echo "  Updated: pyproject.toml → $NEW_PLUGIN"
     DID_SOMETHING=1
   fi
 else
@@ -94,7 +106,7 @@ if [[ -n "$NEW_CLI" ]]; then
     echo "  CLI version unchanged."
   else
     ESC="${CURRENT_CLI//./\\.}"
-    sed -i '' "s/\"version\": \"$ESC\"/\"version\": \"$NEW_CLI\"/" "$CLI_PACKAGE_JSON"
+    sedi "s/\"version\": \"$ESC\"/\"version\": \"$NEW_CLI\"/" "$CLI_PACKAGE_JSON"
     echo "  Updated: cli/package.json → $NEW_CLI"
     (cd "$ROOT/cli" && npm install --package-lock-only --ignore-scripts 2>/dev/null)
     echo "  Updated: cli/package-lock.json"

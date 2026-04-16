@@ -480,35 +480,49 @@ describe("embedInstall", () => {
 
   }
 
-  it("installs files, converts hooks, writes version, returns version string", () => {
-    let capturedTmpDir = "";
+  /**
+   * Mock factory for execSync — routes gh/tar commands with per-test overrides.
+   * Returns the captured tmp dir so tests can assert on it.
+   */
+  function makeMockExec(opts: {
+    throwOnLatest?: boolean;
+    throwOnTar?: boolean;
+    tag?: string;
+  } = {}): { capturedTmpDir: () => string } {
+    const tag = opts.tag ?? "v0.5.0";
+    let tmpDirCapture = "";
 
     mockExecSync.mockImplementation((cmd: string) => {
       const cmdStr = typeof cmd === "string" ? cmd : String(cmd);
 
       if (cmdStr.includes("releases/latest")) {
-        return "v0.5.0\n";
+        if (opts.throwOnLatest) throw new Error("should not call releases/latest when tag is supplied");
+        return `${tag}\n`;
       }
 
       if (cmdStr.includes("release download")) {
-        // Extract the --dir argument from the command
         const dirMatch = cmdStr.match(/--dir\s+"?([^"\s]+)"?/);
         const dir = dirMatch ? dirMatch[1]! : "";
-        capturedTmpDir = dir;
-        // Create a fake tarball file in the dir
+        tmpDirCapture = dir;
         fs.mkdirSync(dir, { recursive: true });
-        fs.writeFileSync(path.join(dir, "skill-forge-v0.5.0.tar.gz"), "fake");
+        fs.writeFileSync(path.join(dir, `skill-forge-${tag}.tar.gz`), "fake");
         return "";
       }
 
       if (cmdStr.includes("tar")) {
-        // Extract tar — build fake structure in capturedTmpDir
-        buildFakeExtract(capturedTmpDir);
+        if (opts.throwOnTar) throw new Error("tar failed");
+        buildFakeExtract(tmpDirCapture);
         return "";
       }
 
       return "";
     });
+
+    return { capturedTmpDir: () => tmpDirCapture };
+  }
+
+  it("installs files, converts hooks, writes version, returns version string", () => {
+    makeMockExec();
 
     const version = embedInstall(tmpDir);
 
@@ -542,27 +556,47 @@ describe("embedInstall", () => {
     expect(stopCmd).not.toContain("${CLAUDE_PLUGIN_ROOT}");
   });
 
-  it("cleans up temp dir even on error", () => {
-    let createdTmpDir = "";
+  it("uses caller-supplied tag, skips gh api fetch", () => {
+    makeMockExec({ throwOnLatest: true });
 
-    mockExecSync.mockImplementation((cmd: string) => {
-      const cmdStr = typeof cmd === "string" ? cmd : String(cmd);
-      if (cmdStr.includes("releases/latest")) return "v0.5.0\n";
-      if (cmdStr.includes("release download")) {
-        const dirMatch = cmdStr.match(/--dir\s+"?([^"\s]+)"?/);
-        createdTmpDir = dirMatch ? dirMatch[1]! : "";
-        fs.mkdirSync(createdTmpDir, { recursive: true });
-        return "";
-      }
-      // tar fails
-      if (cmdStr.includes("tar")) throw new Error("tar failed");
-      return "";
-    });
+    const version = embedInstall(tmpDir, "v0.5.0");
 
-    expect(() => embedInstall(tmpDir)).toThrow();
+    expect(version).toBe("0.5.0");
+    // Verify releases/latest was not called
+    const apiCalls = mockExecSync.mock.calls.filter(
+      ([c]) => String(c).includes("releases/latest"),
+    );
+    expect(apiCalls).toHaveLength(0);
+    // Files still installed correctly
+    expect(fs.existsSync(path.join(tmpDir, ".claude", "commands", "scan.md"))).toBe(true);
+    expect(fs.existsSync(path.join(tmpDir, ".claude", "hooks", "skill-forge", "version.json"))).toBe(true);
+  });
+
+  it("handles corrupted existing settings.json gracefully", () => {
+    // Pre-create a corrupted settings.json
+    const settingsDir = path.join(tmpDir, ".claude");
+    fs.mkdirSync(settingsDir, { recursive: true });
+    fs.writeFileSync(path.join(settingsDir, "settings.json"), "NOT VALID JSON{{{");
+
+    makeMockExec();
+
+    // Should not throw — corrupted settings.json is handled
+    const version = embedInstall(tmpDir);
+    expect(version).toBe("0.5.0");
+
+    // settings.json should now be valid (fresh merge)
+    const settings = JSON.parse(fs.readFileSync(path.join(settingsDir, "settings.json"), "utf-8"));
+    expect(settings.hooks).toBeDefined();
+  });
+
+  it("cleans up temp dir on tar failure", () => {
+    const { capturedTmpDir } = makeMockExec({ throwOnTar: true });
+
+    expect(() => embedInstall(tmpDir)).toThrow("tar failed");
     // Temp dir should be cleaned up
-    if (createdTmpDir) {
-      expect(fs.existsSync(createdTmpDir)).toBe(false);
+    const dir = capturedTmpDir();
+    if (dir) {
+      expect(fs.existsSync(dir)).toBe(false);
     }
   });
 });

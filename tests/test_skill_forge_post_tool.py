@@ -169,6 +169,26 @@ class TestUpsertSkill:
 
         assert registry["skills"][0]["version"] == "1.0.1"
 
+    def test_existing_skill_auto_trigger_updated(self) -> None:
+        """existing skill with changed user-invocable -> auto_trigger updated."""
+        existing = _existing_entry("my-skill", "1.0.0")
+        existing["auto_trigger"] = True
+        registry = _make_registry(existing)
+        fm = {"name": "my-skill", "user-invocable": "false", "description": "x" * 30}
+        upsert_skill(registry, fm, "project")
+
+        assert registry["skills"][0]["auto_trigger"] is False
+
+    def test_existing_skill_auto_trigger_stays_true(self) -> None:
+        """existing skill with user-invocable=true -> auto_trigger remains True."""
+        existing = _existing_entry("my-skill", "1.0.0")
+        existing["auto_trigger"] = False  # was previously manual
+        registry = _make_registry(existing)
+        fm = {"name": "my-skill", "user-invocable": "true", "description": "x" * 30}
+        upsert_skill(registry, fm, "project")
+
+        assert registry["skills"][0]["auto_trigger"] is True
+
     def test_multiple_skills_only_target_updated(self) -> None:
         """multiple skills -> only update the matching name."""
         a = _existing_entry("skill-a", "1.0.0")

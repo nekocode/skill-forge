@@ -39,15 +39,18 @@ def upsert_skill(registry: dict, fm: dict, scope: str):
     name = fm["name"]
     desc_chars = len(fm.get("description", ""))
     today = date.today().isoformat()
+    # user-invocable defaults true; auto_trigger mirrors it
+    auto_trigger = str(fm.get("user-invocable", "true")).lower() != "false"
     for entry in registry["skills"]:
         if entry["name"] == name:
             entry.update({"updated": today, "description_chars": desc_chars,
-                          "version": bump_version(entry.get("version", "1.0.0"))})
+                          "version": bump_version(entry.get("version", "1.0.0")),
+                          "auto_trigger": auto_trigger})
             return
     registry["skills"].append({
         "name": name, "version": "1.0.0", "scope": scope,
         "created": today, "updated": today,
-        "auto_trigger": fm.get("user-invocable", "true").lower() != "false",
+        "auto_trigger": auto_trigger,
         "description_chars": desc_chars, "eval_score": 0, "usage_count": 0,
     })
 

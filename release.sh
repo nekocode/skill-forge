@@ -30,6 +30,8 @@ fi
 # Build tarball with embed-relevant files only
 echo "Building tarball..."
 tar czf "$TARBALL" -C "$ROOT" \
+  --exclude='*/__pycache__' \
+  --exclude='*.pyc' \
   commands/ \
   skills/ \
   hooks/
@@ -44,6 +46,7 @@ fi
 
 # Tag and release
 git tag "$TAG"
+git push origin "$TAG"
 echo "  Tagged: $TAG"
 
 gh release create "$TAG" "$TARBALL" \

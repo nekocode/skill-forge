@@ -155,7 +155,6 @@ export function removeEmbedFiles(projectRoot: string): void {
   }
 
   if (!settings.hooks) {
-    fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
     return;
   }
 

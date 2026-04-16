@@ -215,6 +215,22 @@ class TestScoreGuidancePrompt:
         mock_claude.return_value = ""
         assert score_guidance_prompt("guidance", "improve_fn", _make_eval_data()) == 0.0
 
+    @patch("self_evolve.call_claude")
+    def test_all_opposite_type_still_finds_cases(self, mock_claude: object) -> None:
+        """eval_data with mixed types -> filter-first-then-slice finds matching cases."""
+        # All first 3 are should_trigger=True, but we score FP (is_fn=False)
+        data = [
+            {"query": "deploy app", "should_trigger": True},
+            {"query": "build pipeline", "should_trigger": True},
+            {"query": "run migration", "should_trigger": True},
+            {"query": "read file", "should_trigger": False},
+            {"query": "what time", "should_trigger": False},
+        ]
+        mock_claude.return_value = "Use when deploying builds. Do not use for reads."
+        score = score_guidance_prompt("guidance", "improve_fp", data)
+        # should find the False cases (indices 3,4) and produce a real score
+        assert score > 0.0
+
 
 # ── TestScoreInstructionQuality ─────────────────────
 
@@ -298,6 +314,13 @@ class TestGenerateVariants:
         """all empty -> empty list."""
         mock_claude.side_effect = ["", "", ""]
         assert generate_variants("original", "test", n=3) == []
+
+    @patch("self_evolve.call_claude")
+    def test_empty_current_still_accepts_variants(self, mock_claude: object) -> None:
+        """empty current text -> floor prevents rejecting all variants."""
+        mock_claude.side_effect = ["A short variant", "Another one"]
+        result = generate_variants("", "test", n=2)
+        assert len(result) == 2
 
 
 # ── TestEvolvePrompt ────────────────────────────────

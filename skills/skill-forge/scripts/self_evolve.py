@@ -164,8 +164,10 @@ def score_evaluator_prompt(
     if not eval_data:
         return 0.0
 
+    # cap to avoid unbounded API calls on large eval sets
+    capped = eval_data[:20]
     correct = 0
-    for item in eval_data:
+    for item in capped:
         query = item.get("query", "")
         expected = item.get("should_trigger", False)
 
@@ -181,14 +183,15 @@ def score_evaluator_prompt(
 
         time.sleep(1)  # rate-limit API calls
 
-    return correct / len(eval_data)
+    return correct / len(capped)
 
 
 def score_guidance_prompt(guidance: str, guidance_type: str, eval_data: list[dict]) -> float:
     """Score a guidance prompt by checking structural quality of improvement output."""
     mock_desc = "Use when deploying code to production environments"
     is_fn = guidance_type == "improve_fn"
-    cases = [item for item in eval_data[:3] if item.get("should_trigger", False) == is_fn]
+    # filter by type first, then slice — pre-slicing may exclude all matching cases
+    cases = [item for item in eval_data if item.get("should_trigger", False) == is_fn][:3]
     failures = "\n".join(f"- {c['query']}" for c in cases)
     label = "False negatives — missed" if is_fn else "False positives — triggered incorrectly"
 
@@ -303,7 +306,8 @@ def generate_variants(
             "Output ONLY the new prompt text, nothing else."
         )
         result = call_claude(generation_prompt)
-        if result and len(result) < len(current) * 2:
+        # floor prevents empty `current` from rejecting all variants (0*2=0)
+        if result and len(result) < max(len(current) * 2, 500):
             variants.append(result)
         time.sleep(1)  # rate-limit API calls
 
