@@ -35,7 +35,7 @@ export const MARKETPLACE_SOURCE = "nekocode/skill-forge";
 export const GITHUB_REPO = "nekocode/skill-forge";
 export const EMBED_VERSION_FILE = ".claude/hooks/skill-forge/version.json";
 export const EMBED_HOOKS_DIR = ".claude/hooks/skill-forge";
-export const EMBED_COMMANDS = ["scan.md", "create.md", "improve.md"];
+export const EMBED_COMMANDS = ["scan.md", "create.md", "improve.md", "rename.md"];
 
 // Prefix applied to command filenames during embed install so they appear
 // as /skill-forge:scan instead of bare /scan in project scope.

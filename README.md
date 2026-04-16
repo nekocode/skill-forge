@@ -39,6 +39,7 @@ Run `skill-forge doctor` to verify your environment.
 | `/scan [prompt]` | Scan project for skill opportunities. Optional prompt as focus hint |
 | `/create <prompt>` | Create a new skill from prompt. Name auto-derived |
 | `/improve <prompt>` | Iterate existing skill from prompt. Target matched from registry |
+| `/rename <old> <new>` | AI-driven skill rename — updates dir, SKILL.md body, workspace, registry |
 
 **Auto mode**: After complex tasks (5+ tool calls), the Stop hook detects the pattern and offers to create a skill — no manual invocation needed.
 
@@ -115,6 +116,7 @@ npm install -g @nekocode/skill-forge
 | `skill-forge install` | Install plugin (project scope embeds files, user scope uses plugin system) |
 | `skill-forge uninstall` | Uninstall plugin |
 | `skill-forge list` | Print skill registry for current project |
+| `skill-forge rm <name> [...]` | Remove skills (`--force` to skip confirmation) |
 | `skill-forge doctor` | Diagnose environment (claude CLI, plugin, Python, project structure) |
 | `skill-forge init` | Initialize `.claude/skills/` with empty registry |
 | `skill-forge upgrade` | Sync embedded plugin to latest release (project scope) |

@@ -9,6 +9,7 @@ import { run as installRun } from "./commands/install.js";
 import { run as uninstallRun } from "./commands/uninstall.js";
 import { run as listRun } from "./commands/list.js";
 import { runDoctor, formatResults } from "./commands/doctor.js";
+import { run as rmRun } from "./commands/rm.js";
 import { run as upgradeRun } from "./commands/upgrade.js";
 import { run as upgradeCliRun } from "./commands/upgrade-cli.js";
 
@@ -24,6 +25,7 @@ const KNOWN_COMMANDS = new Set([
   "install",
   "uninstall",
   "list",
+  "rm",
   "doctor",
   "init",
   "upgrade",
@@ -66,6 +68,7 @@ Commands:
   install [--scope <project|user>]  Install plugin (prompts if no scope)
   uninstall        Uninstall skill-forge (project scope first, fallback to user)
   list             Print skill registry (project scope first, fallback to user)
+  rm <name> [...]  Remove skills (--force to skip confirmation)
   doctor           Diagnose environment health
   init             Initialize .claude/skills/ (project scope if .git/.claude exists, else user scope)
   upgrade          Sync embedded plugin to latest release
@@ -99,6 +102,10 @@ async function main(): Promise<void> {
 
     case "list":
       console.log(listRun(cwd));
+      break;
+
+    case "rm":
+      await rmRun(cwd, args);
       break;
 
     case "doctor": {

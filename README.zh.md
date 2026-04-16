@@ -39,6 +39,7 @@ skill-forge install
 | `/scan [prompt]` | 扫描项目发现 skill 机会。可选 prompt 作为聚焦提示 |
 | `/create <prompt>` | 从 prompt 创建新 skill，name 自动推导 |
 | `/improve <prompt>` | 从 prompt 迭代 skill，目标从 registry 匹配 |
+| `/rename <old> <new>` | AI 驱动的 skill 重命名 — 更新目录、SKILL.md 全文、workspace、registry |
 
 **Auto 模式**：完成复杂任务（5+ 工具调用）后，Stop hook 自动检测并提议创建 skill，无需手动调用。
 
@@ -115,6 +116,7 @@ npm install -g @nekocode/skill-forge
 | `skill-forge install` | 安装 plugin（project scope 嵌入文件，user scope 走 plugin 系统） |
 | `skill-forge uninstall` | 卸载 plugin |
 | `skill-forge list` | 打印当前项目 skill 注册表 |
+| `skill-forge rm <name> [...]` | 删除 skill（`--force` 跳过确认） |
 | `skill-forge doctor` | 诊断环境（claude CLI / plugin / Python / 项目结构） |
 | `skill-forge init` | 初始化 `.claude/skills/` + 空注册表 |
 | `skill-forge upgrade` | 同步 embed 文件到最新 release（project scope） |

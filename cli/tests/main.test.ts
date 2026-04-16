@@ -35,6 +35,11 @@ describe("parseCommand", () => {
     expect(result).toEqual({ command: "version", args: [] });
   });
 
+  it("parses rm command with args", () => {
+    const result = parseCommand(["node", "skill-forge", "rm", "foo", "--force"]);
+    expect(result).toEqual({ command: "rm", args: ["foo", "--force"] });
+  });
+
   it("parses upgrade command", () => {
     const result = parseCommand(["node", "skill-forge", "upgrade"]);
     expect(result).toEqual({ command: "upgrade", args: [] });

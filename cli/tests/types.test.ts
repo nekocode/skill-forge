@@ -330,7 +330,7 @@ describe("embed constants", () => {
   });
 
   it("exports embed command filenames", () => {
-    expect(EMBED_COMMANDS).toEqual(["scan.md", "create.md", "improve.md"]);
+    expect(EMBED_COMMANDS).toEqual(["scan.md", "create.md", "improve.md", "rename.md"]);
   });
 });
 
