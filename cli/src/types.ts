@@ -142,6 +142,7 @@ export type RegistryLoadResult =
 
 /**
  * Load and validate skill_registry.json.
+ * Auto-prunes orphaned entries (skill dir missing) and writes back if changed.
  * Returns structured error on missing file, corrupted JSON, or invalid schema.
  */
 export function loadRegistry(projectRoot: string): RegistryLoadResult {
@@ -168,6 +169,16 @@ export function loadRegistry(projectRoot: string): RegistryLoadResult {
   const registry = raw as SkillRegistry;
   if (!Array.isArray(registry.skills)) {
     return { ok: false, error: "Malformed skill_registry.json — missing skills array." };
+  }
+
+  // Auto-prune orphaned entries whose skill directory no longer exists
+  const dir = skillsDir(projectRoot);
+  const alive = registry.skills.filter((entry) =>
+    fs.existsSync(path.join(dir, entry.name)),
+  );
+  if (alive.length < registry.skills.length) {
+    registry.skills = alive;
+    saveRegistry(projectRoot, registry);
   }
 
   return { ok: true, registry };

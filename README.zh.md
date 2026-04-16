@@ -115,7 +115,6 @@ npm install -g @nekocode/skill-forge
 | `skill-forge install` | 安装 plugin（project scope 嵌入文件，user scope 走 plugin 系统） |
 | `skill-forge uninstall` | 卸载 plugin |
 | `skill-forge list` | 打印当前项目 skill 注册表 |
-| `skill-forge registry clean` | 清理孤儿 registry 条目 |
 | `skill-forge doctor` | 诊断环境（claude CLI / plugin / Python / 项目结构） |
 | `skill-forge init` | 初始化 `.claude/skills/` + 空注册表 |
 | `skill-forge upgrade` | 同步 embed 文件到最新 release（project scope） |

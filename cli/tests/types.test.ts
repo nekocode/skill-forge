@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { resolveRoot, resolveTargetRoot, findProjectRoot, userHome, GITHUB_REPO, EMBED_VERSION_FILE, EMBED_HOOKS_DIR, EMBED_COMMANDS, PLUGIN_NAME, embedCommandName } from "../src/types.js";
+import { resolveRoot, resolveTargetRoot, findProjectRoot, userHome, loadRegistry, GITHUB_REPO, EMBED_VERSION_FILE, EMBED_HOOKS_DIR, EMBED_COMMANDS, PLUGIN_NAME, embedCommandName } from "../src/types.js";
 
 describe("resolveRoot", () => {
   let tmpDir: string;
@@ -251,6 +251,68 @@ describe("userHome", () => {
     vi.stubEnv("HOME", "");
     vi.stubEnv("USERPROFILE", "");
     expect(userHome()).toBeNull();
+  });
+});
+
+describe("loadRegistry auto-prune", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "sf-autoprune-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("removes orphaned entries and rewrites registry", () => {
+    const sd = path.join(tmpDir, ".claude", "skills");
+    fs.mkdirSync(path.join(sd, "alive-skill"), { recursive: true });
+    fs.writeFileSync(
+      path.join(sd, "skill_registry.json"),
+      JSON.stringify({
+        version: "1",
+        skills: [
+          { name: "alive-skill", version: "1.0.0" },
+          { name: "dead-skill", version: "1.0.0" },
+        ],
+      }),
+    );
+
+    const result = loadRegistry(tmpDir);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.registry.skills).toHaveLength(1);
+    expect(result.registry.skills[0]!.name).toBe("alive-skill");
+
+    // Verify file was rewritten
+    const onDisk = JSON.parse(fs.readFileSync(path.join(sd, "skill_registry.json"), "utf-8"));
+    expect(onDisk.skills).toHaveLength(1);
+  });
+
+  it("does not rewrite when all entries are alive", () => {
+    const sd = path.join(tmpDir, ".claude", "skills");
+    fs.mkdirSync(path.join(sd, "my-skill"), { recursive: true });
+    const regPath = path.join(sd, "skill_registry.json");
+    const content = JSON.stringify({ version: "1", skills: [{ name: "my-skill", version: "1.0.0" }] });
+    fs.writeFileSync(regPath, content);
+
+    loadRegistry(tmpDir);
+
+    // File unchanged — no unnecessary write
+    expect(fs.readFileSync(regPath, "utf-8")).toBe(content);
+  });
+
+  it("does not rewrite empty skills array", () => {
+    const sd = path.join(tmpDir, ".claude", "skills");
+    fs.mkdirSync(sd, { recursive: true });
+    const regPath = path.join(sd, "skill_registry.json");
+    const content = JSON.stringify({ version: "1", skills: [] });
+    fs.writeFileSync(regPath, content);
+
+    loadRegistry(tmpDir);
+
+    expect(fs.readFileSync(regPath, "utf-8")).toBe(content);
   });
 });
 

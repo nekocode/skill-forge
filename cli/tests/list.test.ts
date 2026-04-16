@@ -73,7 +73,9 @@ describe("list command", () => {
 
   it("prints formatted table for skills", () => {
     const skillsDir = path.join(tmpDir, ".claude", "skills");
-    fs.mkdirSync(skillsDir, { recursive: true });
+    // Create skill directories so auto-prune keeps them
+    fs.mkdirSync(path.join(skillsDir, "generate-endpoint"), { recursive: true });
+    fs.mkdirSync(path.join(skillsDir, "seed-database"), { recursive: true });
     fs.writeFileSync(
       path.join(skillsDir, "skill_registry.json"),
       JSON.stringify({

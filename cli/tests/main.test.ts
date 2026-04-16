@@ -10,11 +10,6 @@ describe("parseCommand", () => {
     expect(result).toEqual({ command: "list", args: [] });
   });
 
-  it("parses command with subcommand", () => {
-    const result = parseCommand(["node", "skill-forge", "registry", "clean"]);
-    expect(result).toEqual({ command: "registry", args: ["clean"] });
-  });
-
   it("returns help for no arguments", () => {
     const result = parseCommand(["node", "skill-forge"]);
     expect(result).toEqual({ command: "help", args: [] });

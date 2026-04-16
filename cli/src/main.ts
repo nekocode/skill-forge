@@ -8,9 +8,7 @@ import { run as initRun } from "./commands/init.js";
 import { run as installRun } from "./commands/install.js";
 import { run as uninstallRun } from "./commands/uninstall.js";
 import { run as listRun } from "./commands/list.js";
-import { clean as registryClean } from "./commands/registry.js";
 import { runDoctor, formatResults } from "./commands/doctor.js";
-import { resolveRoot } from "./types.js";
 import { run as upgradeRun } from "./commands/upgrade.js";
 import { run as upgradeCliRun } from "./commands/upgrade-cli.js";
 
@@ -26,7 +24,6 @@ const KNOWN_COMMANDS = new Set([
   "install",
   "uninstall",
   "list",
-  "registry",
   "doctor",
   "init",
   "upgrade",
@@ -69,7 +66,6 @@ Commands:
   install [--scope <project|user>]  Install plugin (prompts if no scope)
   uninstall        Uninstall skill-forge (project scope first, fallback to user)
   list             Print skill registry (project scope first, fallback to user)
-  registry clean   Remove orphaned registry entries
   doctor           Diagnose environment health
   init             Initialize .claude/skills/ (project scope if .git/.claude exists, else user scope)
   upgrade          Sync embedded plugin to latest release
@@ -104,31 +100,6 @@ async function main(): Promise<void> {
     case "list":
       console.log(listRun(cwd));
       break;
-
-    case "registry": {
-      const sub = args[0];
-      if (sub !== "clean") {
-        console.error(
-          `Unknown registry subcommand: ${sub ?? "(none)"}. Available: clean`,
-        );
-        process.exit(1);
-      }
-      const { root, scope } = resolveRoot(cwd);
-      const result = registryClean(root);
-      if ("error" in result) {
-        console.error(result.error);
-        process.exit(1);
-      }
-      const scopeTag = `[${scope}]`;
-      if (result.removed.length === 0) {
-        console.log(`Registry ${scopeTag} is clean. No orphaned entries.`);
-      } else {
-        console.log(
-          `${scopeTag} Removed ${result.removed.length} stale entries: ${result.removed.join(", ")}`,
-        );
-      }
-      break;
-    }
 
     case "doctor": {
       const results = runDoctor(cwd);
