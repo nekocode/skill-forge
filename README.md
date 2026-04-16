@@ -23,7 +23,7 @@ npm install -g @nekocode/skill-forge
 skill-forge install
 ```
 
-**Or manually in Claude Code:**
+**Or manually in Claude Code (installs to user-global scope):**
 
 ```
 /plugin marketplace add nekocode/skill-forge
@@ -112,7 +112,7 @@ npm install -g @nekocode/skill-forge
 
 | Command | What it does |
 |---------|-------------|
-| `skill-forge install` | Install plugin via `claude` CLI (marketplace add + install) |
+| `skill-forge install` | Install plugin (project scope embeds files, user scope uses plugin system) |
 | `skill-forge uninstall` | Uninstall plugin |
 | `skill-forge list` | Print skill registry for current project |
 | `skill-forge registry clean` | Remove orphaned registry entries |

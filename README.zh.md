@@ -23,7 +23,7 @@ npm install -g @nekocode/skill-forge
 skill-forge install
 ```
 
-**或在 Claude Code 内手动安装：**
+**或在 Claude Code 内手动安装（安装到用户全局目录）：**
 
 ```
 /plugin marketplace add nekocode/skill-forge
@@ -112,7 +112,7 @@ npm install -g @nekocode/skill-forge
 
 | 命令 | 功能 |
 |------|------|
-| `skill-forge install` | 通过 `claude` CLI 安装 plugin（marketplace add + install） |
+| `skill-forge install` | 安装 plugin（project scope 嵌入文件，user scope 走 plugin 系统） |
 | `skill-forge uninstall` | 卸载 plugin |
 | `skill-forge list` | 打印当前项目 skill 注册表 |
 | `skill-forge registry clean` | 清理孤儿 registry 条目 |
