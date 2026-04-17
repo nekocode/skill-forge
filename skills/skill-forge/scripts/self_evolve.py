@@ -11,26 +11,122 @@ Developer workflow:
   4. Test, commit, release
 
 Usage:
-  python self_evolve.py --skills-dir .claude/skills [--variants 3] [--apply]
+  python self_evolve.py --skills-dir .claude/skills [--variants 3] [--apply] [--rpm 46]
+
+API calls run concurrently, throttled by a shared RPM budget. Default 46 RPM fits
+a Tier-1 Anthropic account (50 RPM cap). Raise `--rpm` on higher tiers for faster
+runs.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import random
 import re
 import sys
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable, Iterable, TypeVar
+
+# Multi-sample mean fights Claude's stochastic scoring (same prompt, different score
+# across runs — observed ±0.50 on guidance scorers). k=2 reduces variance by ~√2;
+# higher k blows the ~1h API budget.
+SAMPLE_RUNS = 2
+# Minimum lift for a variant to beat baseline. Empirically, noise produces ±0.10-0.15
+# swings; any lift smaller than this is indistinguishable from resampling noise.
+SIGNIFICANCE_THRESHOLD = 0.15
+
+# Default Tier-1 safe rate: 46 RPM → 1.304s between launches. Leaves 4 RPM headroom
+# under the 50 RPM cap for retries and burst tolerance. Override via --rpm.
+DEFAULT_RPM = 46
+
+# PromptBreeder-lite: rotating directives to push the generator out of local paraphrase.
+# One style is injected per variant so `n` variants explore `n` different axes.
+_THINKING_STYLES: tuple[str, ...] = (
+    "rewrite as if instructing a skeptical senior engineer who won't follow vague advice",
+    "rewrite as a terse spec a compiler could parse — strip all hedging",
+    "rewrite emphasizing the failure modes this prompt prevents, not the behavior it enables",
+    "rewrite as a checklist a reviewer could mechanically apply",
+    "rewrite by starting from the required output format and working backwards to the instruction",
+    "rewrite as if the reader has never seen this task type before",
+)
 
 from optimize_description import (
     EVALUATE_TEMPLATE,
     IMPROVE_FN_GUIDANCE,
     IMPROVE_FP_GUIDANCE,
-    call_claude,
+    _call_claude_once as _raw_call_claude,
 )
 from shared import log_stderr as _log
+
+
+# ── rate limiter + parallel map ─────────────────────
+# All API calls funnel through the `call_claude` wrapper below, which blocks
+# until `_min_launch_interval` has elapsed since the previous launch across
+# ALL threads — single source of truth for the RPM budget.
+
+_T = TypeVar("_T")
+_U = TypeVar("_U")
+
+_rate_lock = threading.Lock()
+_last_launch_time = 0.0
+_min_launch_interval = 60.0 / DEFAULT_RPM
+
+
+def _configure_rate_limit(rpm: int) -> None:
+    """Set the inter-launch floor in seconds from the target RPM. Called once from main()."""
+    global _min_launch_interval
+    _min_launch_interval = 60.0 / max(rpm, 1)
+
+
+def _throttle() -> None:
+    """Block until the minimum inter-launch gap has elapsed.
+
+    Only serializes call-start timestamps; the underlying subprocess work proceeds
+    concurrently once launched. Uses `time.sleep` so tests can mock it out.
+    """
+    global _last_launch_time
+    with _rate_lock:
+        now = time.monotonic()
+        wait = _min_launch_interval - (now - _last_launch_time)
+        if wait > 0:
+            time.sleep(wait)
+        _last_launch_time = time.monotonic()
+
+
+def call_claude(prompt: str) -> str:
+    """Throttled claude --print, with one throttled retry on empty response.
+
+    Owning the retry here (instead of inside `optimize_description.call_claude`)
+    keeps every API launch — primary AND retry — inside the RPM budget. The
+    module-level binding is the patch target for tests.
+    """
+    _throttle()
+    result = _raw_call_claude(prompt)
+    if result:
+        return result
+    _throttle()
+    return _raw_call_claude(prompt)
+
+
+def _run_parallel(fn: Callable[[_T], _U], items: Iterable[_T]) -> list[_U]:
+    """Execute `fn` over `items` concurrently; results in submission order.
+
+    A fresh executor per call avoids the nested-submission deadlock that a shared
+    pool risks (parent thread holding a worker while waiting for child work that
+    has nowhere to run). Concurrency is still bounded by the global rate limiter,
+    so pool width has no effect on API cost — only thread count.
+    """
+    items = list(items)
+    if not items:
+        return []
+    workers = min(len(items), 16)
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        return list(executor.map(fn, items))
 
 
 # ── prompt catalog ──────────────────────────────────
@@ -78,7 +174,7 @@ def build_catalog(skill_md_path: Path) -> list[PromptEntry]:
 
 # SKILL.md sections to optimize: (heading_text, metric_type)
 SKILL_MD_SECTIONS: list[tuple[str, str]] = [
-    ("Description writing rules (directly affects triggering accuracy)", "instruction_quality"),
+    ("Description writing rules", "instruction_quality"),
     ("Step 3b: triggering improvement (eval-driven)", "instruction_quality"),
 ]
 
@@ -160,30 +256,25 @@ def score_evaluator_prompt(
     """Score an evaluate prompt template against labeled eval data.
 
     Returns accuracy 0.0-1.0. Single call per case (no majority vote) for speed.
+    Cases are evaluated in parallel; the global rate limiter gates API invocation.
     """
     if not eval_data:
         return 0.0
 
     # cap to avoid unbounded API calls on large eval sets
     capped = eval_data[:20]
-    correct = 0
-    for item in capped:
-        query = item.get("query", "")
-        expected = item.get("should_trigger", False)
 
+    def _judge(item: dict) -> bool:
         prompt = template.format(
             description="A multi-step workflow skill for complex tasks",
-            query=query,
+            query=item.get("query", ""),
         )
         response = call_claude(prompt)
         predicted = response.strip().upper() == "YES"
+        return predicted == item.get("should_trigger", False)
 
-        if predicted == expected:
-            correct += 1
-
-        time.sleep(1)  # rate-limit API calls
-
-    return correct / len(capped)
+    results = _run_parallel(_judge, capped)
+    return sum(1 for r in results if r) / len(capped)
 
 
 def score_guidance_prompt(guidance: str, guidance_type: str, eval_data: list[dict]) -> float:
@@ -200,7 +291,6 @@ def score_guidance_prompt(guidance: str, guidance_type: str, eval_data: list[dic
         f"{label}:\n{failures}\n{guidance}\n\n"
         "Write an improved description under 250 characters. Output ONLY the new description."
     )
-    time.sleep(1)  # rate-limit API calls
     if not result:
         return 0.0
 
@@ -237,7 +327,6 @@ def score_instruction_quality(instruction: str, eval_data: list[dict]) -> float:
         "with schema backup, migration script execution, data validation, and seed update'.\n\n"
         "Output ONLY the description text, nothing else."
     )
-    time.sleep(1)  # rate-limit API calls
     if not result:
         return 0.0
 
@@ -266,8 +355,8 @@ def score_instruction_quality(instruction: str, eval_data: list[dict]) -> float:
     return score
 
 
-def score_prompt(name: str, value: str, metric_type: str, eval_data: list[dict]) -> float:
-    """Route to the appropriate scoring function based on metric_type."""
+def _score_once(name: str, value: str, metric_type: str, eval_data: list[dict]) -> float:
+    """Single-sample scoring: route to the scorer matching metric_type."""
     if metric_type == "evaluator_accuracy":
         return score_evaluator_prompt(value, eval_data)
     if metric_type == "guidance_quality":
@@ -278,7 +367,65 @@ def score_prompt(name: str, value: str, metric_type: str, eval_data: list[dict])
     return 0.0
 
 
+def score_prompt(
+    name: str,
+    value: str,
+    metric_type: str,
+    eval_data: list[dict],
+) -> float:
+    """Multi-sample mean of `_score_once` over `SAMPLE_RUNS` trials.
+
+    Scorers are stochastic at temperature > 0, so one sample is noisy. Averaging k
+    samples reduces std by √k. k is fixed at module level — no per-call override.
+    Samples run in parallel; the rate limiter throttles actual API invocation.
+    """
+    scores = _run_parallel(
+        lambda _idx: _score_once(name, value, metric_type, eval_data),
+        range(SAMPLE_RUNS),
+    )
+    return sum(scores) / len(scores)
+
+
 # ── variant generation ──────────────────────────────
+
+
+_META_LEAD_MARKERS = (
+    "哥", "Here's", "Here is", "Sure,", "Sure!", "Certainly", "Okay,",
+    "好的", "变体", "Variant #", "Variant:",
+)
+_META_BODY_MARKERS = (
+    "variant #", "variant:", "差异点", "原版是", "原版的", "差异：", "差异:",
+    "## difference", "## 差异", "**差异", "the difference between",
+    "here's the improved", "here is the improved",
+)
+
+
+def _sanitize_variant(text: str) -> str | None:
+    """Strip meta-leak markers from a generated variant. Return None if unrecoverable.
+
+    Two common failure modes this catches:
+    - Conversational lead: "Here's variant #2: ..." or CLAUDE.md style leak ("哥, ...")
+    - Meta blocks delimited by --- with explanation of differences from the baseline
+    """
+    if not text:
+        return None
+    t = text.strip()
+    # --- separators: take the longest block (real prompt), drop commentary wrappers
+    if "---" in t:
+        blocks = [b.strip() for b in t.split("---") if b.strip()]
+        if blocks:
+            t = max(blocks, key=len)
+    if any(t.startswith(lead) for lead in _META_LEAD_MARKERS):
+        return None
+    low = t.lower()
+    if any(marker.lower() in low for marker in _META_BODY_MARKERS):
+        return None
+    return t or None
+
+
+def _pick_thinking_styles(n: int) -> list[str]:
+    """Without-replacement sampling so variants explore distinct axes."""
+    return random.sample(_THINKING_STYLES, min(n, len(_THINKING_STYLES)))
 
 
 def generate_variants(
@@ -286,32 +433,40 @@ def generate_variants(
     prompt_name: str,
     n: int = 3,
 ) -> list[str]:
-    """Generate N prompt variants via Claude.
+    """Generate N prompt variants via Claude, each guided by a distinct thinking-style.
 
-    Returns list of variant strings (may be < n if Claude returns empty/too-long).
+    Returns list of variant strings (may be < n if Claude returns empty/too-long/contaminated).
+    Generation runs in parallel; the rate limiter throttles actual API invocation.
     """
-    variants: list[str] = []
+    styles = _pick_thinking_styles(n)
+    # floor so empty `current` doesn't reject every variant via the length check
+    length_cap = max(len(current) * 2, 500)
 
-    for i in range(n):
+    def _generate(indexed: tuple[int, str]) -> str | None:
+        i, style = indexed
         generation_prompt = (
             f"You are optimizing a prompt template used in an AI skill trigger system.\n\n"
             f"Prompt name: {prompt_name}\n"
             f"Current prompt:\n{current}\n\n"
             f"Generate variant #{i + 1} of this prompt that might perform better.\n"
+            f"Variant direction: {style}.\n"
             "Rules:\n"
             "- Keep the same placeholders (e.g., {{description}}, {{query}}) if present\n"
             "- Maintain the same output format requirement (YES/NO, or description text)\n"
-            "- Try a different angle: different framing, emphasis, or reasoning cues\n"
+            "- Apply the variant direction — don't just paraphrase the current prompt\n"
             "- Keep similar length (within 50% of original)\n\n"
-            "Output ONLY the new prompt text, nothing else."
+            "CRITICAL: output is fed verbatim into the system. No preamble, no commentary, "
+            "no markdown fences, no '---' separators, no 'Variant #' labels, no "
+            "'differences from the original' notes. Just the prompt text itself."
         )
         result = call_claude(generation_prompt)
-        # floor prevents empty `current` from rejecting all variants (0*2=0)
-        if result and len(result) < max(len(current) * 2, 500):
-            variants.append(result)
-        time.sleep(1)  # rate-limit API calls
+        clean = _sanitize_variant(result)
+        if clean and len(clean) < length_cap:
+            return clean
+        return None
 
-    return variants
+    results = _run_parallel(_generate, list(enumerate(styles)))
+    return [v for v in results if v is not None]
 
 
 # ── evolution loop ──────────────────────────────────
@@ -319,22 +474,34 @@ def generate_variants(
 
 def evolve_prompt(name: str, current: str, metric_type: str,
                   eval_data: list[dict], n_variants: int = 3) -> dict:
-    """Meta-optimize a single prompt. Returns result dict with winner."""
+    """Meta-optimize a single prompt. Returns result dict with winner.
+
+    A variant replaces the baseline only if its score exceeds baseline by at least
+    SIGNIFICANCE_THRESHOLD. This rejects pseudo-improvements caused by resampling noise.
+    """
     _log(f"\n=== Evolving: {name} ===")
     current_score = score_prompt(name, current, metric_type, eval_data)
-    _log(f"  Current score: {current_score:.2f}")
+    _log(f"  Current score: {current_score:.2f} (mean of {SAMPLE_RUNS} samples)")
     best, best_score = current, current_score
 
     variants = generate_variants(current, name, n=n_variants)
     _log(f"  Generated {len(variants)} variants")
-    for i, variant in enumerate(variants):
-        variant_score = score_prompt(name, variant, metric_type, eval_data)
-        _log(f"  Variant {i + 1}: {variant_score:.2f}")
-        if variant_score > best_score:
+    # score all variants concurrently; rate limiter still serializes API launches
+    variant_scores = _run_parallel(
+        lambda v: score_prompt(name, v, metric_type, eval_data),
+        variants,
+    )
+    for i, (variant, variant_score) in enumerate(zip(variants, variant_scores)):
+        margin = variant_score - current_score
+        _log(f"  Variant {i + 1}: {variant_score:.2f} (Δ={margin:+.2f})")
+        # both clauses are essential: must beat the running best AND clear the
+        # significance bar against the original baseline (stops drift via tiny steps).
+        if variant_score > best_score and margin > SIGNIFICANCE_THRESHOLD:
             best_score, best = variant_score, variant
 
     improved = best != current
-    _log(f"  {'Winner' if improved else 'No improvement'}: {best_score:.2f}")
+    _log(f"  {'Winner' if improved else 'No improvement'}: "
+         f"{best_score:.2f} (min lift {SIGNIFICANCE_THRESHOLD:+.2f})")
     return {"name": name, "original": current, "best": best,
             "original_score": current_score, "best_score": best_score,
             "improved": improved, "variants_tested": len(variants)}
@@ -405,8 +572,18 @@ def _patch_python_constant(content: str, const_name: str, new_value: str) -> str
 
 
 def _format_python_constant(name: str, value: str) -> str:
-    """Format a string value as a Python parenthesized string constant."""
-    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    """Format a string value as a Python parenthesized string constant.
+
+    Escapes backslash/quote/CR/LF/TAB so literal control chars in the generated variant
+    don't produce unterminated string literals when splicing into source.
+    """
+    escaped = (
+        value.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
+    )
     lines: list[str] = []
     remaining = escaped
     while remaining:
@@ -438,7 +615,14 @@ def main() -> None:
     parser.add_argument("--skills-dir", default=".claude/skills", help="Skills directory path")
     parser.add_argument("--variants", type=int, default=3, help="Number of variants per prompt")
     parser.add_argument("--apply", action="store_true", help="Patch source files with winners")
+    parser.add_argument(
+        "--rpm", type=int, default=DEFAULT_RPM,
+        help=f"API requests-per-minute cap (default {DEFAULT_RPM}; raise on higher API tiers)",
+    )
     args = parser.parse_args()
+
+    _configure_rate_limit(args.rpm)
+    _log(f"Rate limit: {args.rpm} RPM ({_min_launch_interval:.2f}s between launches)")
 
     skills_dir = Path(args.skills_dir)
     scripts_dir = Path(__file__).parent
@@ -456,12 +640,13 @@ def main() -> None:
     _log(f"Catalog: {len(catalog)} prompts ({sum(1 for e in catalog if e.source_type == 'python_constant')} Python, "
          f"{sum(1 for e in catalog if e.source_type == 'markdown_section')} SKILL.md)")
 
-    # evolve each prompt
-    results: list[dict] = []
-    for entry in catalog:
-        result = evolve_prompt(entry.name, entry.default, entry.metric_type,
-                               eval_data, n_variants=args.variants)
-        results.append(result)
+    # evolve all prompts concurrently; rate limiter still governs API launches
+    # across the nested executors, so cost is unchanged but wall-clock drops.
+    results = _run_parallel(
+        lambda e: evolve_prompt(e.name, e.default, e.metric_type,
+                                eval_data, n_variants=args.variants),
+        catalog,
+    )
 
     # apply if requested
     if args.apply:

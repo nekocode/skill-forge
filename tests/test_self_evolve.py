@@ -27,7 +27,15 @@ from self_evolve import (
     extract_markdown_section,
     replace_markdown_section,
     apply_results,
+    _configure_rate_limit,
     _format_python_constant,
+    _pick_thinking_styles,
+    _run_parallel,
+    _sanitize_variant,
+    _THINKING_STYLES,
+    DEFAULT_RPM,
+    SAMPLE_RUNS,
+    SIGNIFICANCE_THRESHOLD,
     main,
 )
 
@@ -159,7 +167,7 @@ class TestBuildCatalog:
         """SKILL.md sections added when file exists with matching headings."""
         md = tmp_path / "SKILL.md"
         md.write_text(
-            "### Description writing rules (directly affects triggering accuracy)\n\n"
+            "### Description writing rules\n\n"
             "Rule content here\n\n"
             "### Step 3b: triggering improvement (eval-driven)\n\n"
             "Step content here\n\n"
@@ -178,8 +186,11 @@ class TestScoreEvaluatorPrompt:
 
     @patch("self_evolve.call_claude")
     def test_perfect_accuracy(self, mock_claude: object) -> None:
-        """all correct -> 1.0."""
-        mock_claude.side_effect = ["YES", "NO", "YES", "NO"]
+        """all correct -> 1.0. Query-keyed side_effect is deterministic regardless
+        of parallel worker ordering — pure index-based lists would be fragile."""
+        def _answer(prompt: str) -> str:
+            return "YES" if ("deploy" in prompt or "CI/CD" in prompt) else "NO"
+        mock_claude.side_effect = _answer
         assert score_evaluator_prompt("t {description} {query}", _make_eval_data()) == 1.0
 
     @patch("self_evolve.call_claude")
@@ -290,6 +301,13 @@ class TestScorePrompt:
         """unknown metric -> 0.0."""
         assert score_prompt("x", "t", "nonexistent", []) == 0.0
 
+    @patch("self_evolve.score_evaluator_prompt")
+    def test_multi_sample_averages(self, mock_score: object) -> None:
+        """k=SAMPLE_RUNS samples → return arithmetic mean."""
+        mock_score.side_effect = [0.6, 0.8]  # noisy samples, mean=0.7
+        assert score_prompt("evaluate", "t", "evaluator_accuracy", []) == 0.7
+        assert mock_score.call_count == SAMPLE_RUNS
+
 
 # ── TestGenerateVariants ────────────────────────────
 
@@ -322,6 +340,85 @@ class TestGenerateVariants:
         result = generate_variants("", "test", n=2)
         assert len(result) == 2
 
+    @patch("self_evolve.call_claude")
+    def test_drops_meta_contaminated(self, mock_claude: object) -> None:
+        """variants leaking conversational address or meta commentary are rejected."""
+        mock_claude.side_effect = [
+            # meta wrapper + middle also has Variant # marker → reject
+            "哥，这是 variant #2：\n---\nVariant #2 rewrites the prompt from scratch\n---\n差异点：...",
+            # starts with conversational lead → reject
+            "Here's variant #1: use this prompt",
+            # clean → accept
+            "A clean prompt",
+        ]
+        result = generate_variants("original prompt text", "test", n=3)
+        assert result == ["A clean prompt"]
+
+    @patch("self_evolve.call_claude")
+    def test_salvages_clean_middle_block(self, mock_claude: object) -> None:
+        """--- wrapper with clean middle: extract the middle as a valid variant."""
+        mock_claude.side_effect = [
+            "Here's your variant:\n---\nactual clean prompt body content\n---\n(that's all)",
+        ]
+        result = generate_variants("original prompt text here", "test", n=1)
+        assert result == ["actual clean prompt body content"]
+
+    @patch("self_evolve.call_claude")
+    def test_injects_thinking_style(self, mock_claude: object) -> None:
+        """each generation prompt includes a directive from the thinking-style bank."""
+        mock_claude.side_effect = ["VariantA", "VariantB", "VariantC"]
+        generate_variants("original prompt text", "test", n=3)
+        prompts = [c.args[0] for c in mock_claude.call_args_list]
+        for p in prompts:
+            assert any(style in p for style in _THINKING_STYLES), (
+                f"no thinking-style found in generation prompt: {p[:200]}"
+            )
+
+
+class TestPickThinkingStyles:
+    """Thinking-style sampling."""
+
+    def test_unique_when_n_within_bank(self) -> None:
+        """n ≤ bank size → all picks distinct (explores different axes)."""
+        picks = _pick_thinking_styles(len(_THINKING_STYLES))
+        assert len(set(picks)) == len(_THINKING_STYLES)
+
+    def test_capped_at_bank_size(self) -> None:
+        """n > bank size → returns bank-size many distinct styles (no duplicates)."""
+        picks = _pick_thinking_styles(len(_THINKING_STYLES) + 5)
+        assert len(picks) == len(_THINKING_STYLES)
+        assert set(picks) == set(_THINKING_STYLES)
+
+
+class TestSanitizeVariant:
+    """Meta-leak detection on generated variants."""
+
+    def test_clean_passes(self) -> None:
+        assert _sanitize_variant("Rewrite the description by ...") == "Rewrite the description by ..."
+
+    def test_chinese_lead_rejected(self) -> None:
+        """CLAUDE.md-style conversational address leaks → reject."""
+        assert _sanitize_variant("哥，这里是 variant：\n\nreal content") is None
+
+    def test_here_is_lead_rejected(self) -> None:
+        assert _sanitize_variant("Here's the improved prompt: use X") is None
+
+    def test_meta_marker_rejected(self) -> None:
+        """Variant #N, 差异点, etc. anywhere → reject."""
+        assert _sanitize_variant("Use when X.\n\nVariant #3 notes: ...") is None
+        assert _sanitize_variant("The fix: do Y.\n\n差异点：与原版区别") is None
+
+    def test_separator_extracts_longest_block(self) -> None:
+        """--- delimiters: pick the largest block (the actual prompt)."""
+        input_text = "short preamble\n---\nthis is the actual meaningful prompt text that is longer\n---\npostamble"
+        result = _sanitize_variant(input_text)
+        assert result is not None
+        assert "meaningful prompt" in result
+
+    def test_empty_returns_none(self) -> None:
+        assert _sanitize_variant("") is None
+        assert _sanitize_variant("   \n  ") is None
+
 
 # ── TestEvolvePrompt ────────────────────────────────
 
@@ -332,8 +429,10 @@ class TestEvolvePrompt:
     @patch("self_evolve.generate_variants")
     @patch("self_evolve.score_prompt")
     def test_finds_improvement(self, mock_score: object, mock_gen: object) -> None:
-        """variant scores higher -> improved=True."""
-        mock_score.side_effect = [0.6, 0.8, 0.7, 0.5]
+        """variant scores higher -> improved=True. Value-keyed side_effect is
+        parallel-safe: threading can reorder side_effect-list consumption."""
+        scores = {"current": 0.6, "v1": 0.8, "v2": 0.7, "v3": 0.5}
+        mock_score.side_effect = lambda name, v, mt, ed: scores[v]
         mock_gen.return_value = ["v1", "v2", "v3"]
         result = evolve_prompt("test", "current", "evaluator_accuracy", [{"query": "q"}])
         assert result["improved"] is True
@@ -347,6 +446,29 @@ class TestEvolvePrompt:
         mock_gen.return_value = ["v1", "v2", "v3"]
         result = evolve_prompt("test", "current", "evaluator_accuracy", [{"query": "q"}])
         assert result["improved"] is False
+
+    @patch("self_evolve.generate_variants")
+    @patch("self_evolve.score_prompt")
+    def test_rejects_below_threshold(self, mock_score: object, mock_gen: object) -> None:
+        """variant score above baseline but lift < SIGNIFICANCE_THRESHOLD → rejected."""
+        # baseline 0.65, variants 0.70 / 0.75 / 0.60 — all lifts < 0.15
+        mock_score.side_effect = [0.65, 0.70, 0.75, 0.60]
+        mock_gen.return_value = ["v1", "v2", "v3"]
+        result = evolve_prompt("test", "current", "evaluator_accuracy", [{"query": "q"}])
+        assert result["improved"] is False
+        assert result["best"] == "current"
+
+    @patch("self_evolve.generate_variants")
+    @patch("self_evolve.score_prompt")
+    def test_accepts_above_threshold(self, mock_score: object, mock_gen: object) -> None:
+        """variant with lift ≥ SIGNIFICANCE_THRESHOLD replaces baseline."""
+        # baseline 0.65; v1 +0.10 (below), v2 +0.20 (above), v3 +0.05 (below)
+        scores = {"current": 0.65, "v1": 0.75, "v2": 0.85, "v3": 0.70}
+        mock_score.side_effect = lambda name, v, mt, ed: scores[v]
+        mock_gen.return_value = ["v1", "v2", "v3"]
+        result = evolve_prompt("test", "current", "evaluator_accuracy", [{"query": "q"}])
+        assert result["improved"] is True
+        assert result["best"] == "v2"
 
 
 # ── TestApplyResults ────────────────────────────────
@@ -411,6 +533,18 @@ class TestFormatPythonConstant:
         assert result.startswith("X = (")
         assert result.endswith(")")
 
+    def test_escapes_control_chars(self) -> None:
+        """literal newlines/tabs in value become escape sequences so source parses."""
+        import ast
+        value = "line one\nline two\twith tab\n\nblank line"
+        result = _format_python_constant("Y", value)
+        # resulting source must parse and round-trip to the original value
+        parsed = ast.parse(result, mode="exec")
+        assert "\n" not in result.split("\n", 1)[1].rsplit("\n", 1)[0][5:]  # no literal \n inside any "..." line
+        ns: dict = {}
+        exec(compile(parsed, "<test>", "exec"), ns)
+        assert ns["Y"] == value
+
 
 # ── TestMain ────────────────────────────────────────
 
@@ -448,3 +582,63 @@ class TestMain:
             with pytest.raises(SystemExit) as exc_info:
                 main()
             assert exc_info.value.code == 1
+
+
+# ── TestRunParallel ─────────────────────────────────
+
+
+class TestRunParallel:
+    """Parallel map helper."""
+
+    def test_preserves_submission_order(self) -> None:
+        """results returned in input order even when workers complete out of order."""
+        import threading
+        import time as real_time
+        barrier = threading.Barrier(4)
+
+        def _delayed(i: int) -> int:
+            # all workers wait at barrier, then return — forces out-of-order completion
+            barrier.wait()
+            real_time.sleep(0.001 * (4 - i))  # later-submitted returns sooner
+            return i * 10
+
+        assert _run_parallel(_delayed, [0, 1, 2, 3]) == [0, 10, 20, 30]
+
+    def test_empty_input(self) -> None:
+        """no items -> empty list, no executor spawned."""
+        assert _run_parallel(lambda x: x, []) == []
+
+    def test_single_item(self) -> None:
+        """single item works (workers clamped to len(items))."""
+        assert _run_parallel(lambda x: x + 1, [5]) == [6]
+
+
+# ── TestRateLimiter ─────────────────────────────────
+
+
+class TestRateLimiter:
+    """Rate-limit configuration."""
+
+    def test_configure_sets_interval(self) -> None:
+        """--rpm arg converts cleanly to seconds-between-launches."""
+        _configure_rate_limit(60)
+        assert self_evolve._min_launch_interval == pytest.approx(1.0)
+        _configure_rate_limit(30)
+        assert self_evolve._min_launch_interval == pytest.approx(2.0)
+        _configure_rate_limit(DEFAULT_RPM)  # restore default
+
+    def test_configure_rejects_zero(self) -> None:
+        """rpm=0 clamps to 1 to avoid division by zero."""
+        _configure_rate_limit(0)
+        assert self_evolve._min_launch_interval == pytest.approx(60.0)
+        _configure_rate_limit(DEFAULT_RPM)
+
+    @patch("self_evolve._raw_call_claude")
+    def test_call_claude_invokes_throttle(self, mock_raw: object) -> None:
+        """wrapper calls _throttle before the raw subprocess."""
+        mock_raw.return_value = "OK"
+        with patch("self_evolve._throttle") as mock_throttle:
+            result = self_evolve.call_claude("hello")
+        assert result == "OK"
+        mock_throttle.assert_called_once()
+        mock_raw.assert_called_once_with("hello")

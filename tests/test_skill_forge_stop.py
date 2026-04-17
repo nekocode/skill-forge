@@ -69,16 +69,15 @@ class TestBuildMessage:
         msg = build_message("test reason")
         assert "[skill-forge]" in msg
         assert "test reason" in msg
-        assert "Ask the user:" in msg
+        assert "AskUserQuestion" in msg
         assert "/skill-forge create" in msg
 
     def test_message_structure(self) -> None:
         """message contains full user interaction guidance."""
         msg = build_message("r")
-        assert "[y] Create skill" in msg
-        assert "[n] Skip" in msg
-        assert "If user says yes" in msg
-        assert "If user says no" in msg
+        assert "Create" in msg
+        assert "Skip" in msg
+        assert "reset silently" in msg
 
 
 # ── TestMain ──────────────────────────────────────────

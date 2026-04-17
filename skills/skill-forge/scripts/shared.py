@@ -80,11 +80,15 @@ def save_registry(registry: dict, path: Path = REGISTRY_FILE) -> None:
 # ── Subprocess ─────────────────────────────────────────
 
 
-def run_subprocess(cmd: list[str], timeout: int = 30) -> str:
-    """Run subprocess, return stdout. Failure/timeout returns empty string."""
+def run_subprocess(cmd: list[str], timeout: int = 30, cwd: str | None = None) -> str:
+    """Run subprocess, return stdout. Failure/timeout returns empty string.
+
+    cwd: working directory. Pass `"/tmp"` for `claude -p` calls — the CLI otherwise
+    walks up the tree and loads any CLAUDE.md it finds, contaminating prompts.
+    """
     try:
         result = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=timeout,
+            cmd, capture_output=True, text=True, timeout=timeout, cwd=cwd,
         )
         if result.returncode != 0:
             return ""

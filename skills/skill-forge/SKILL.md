@@ -57,6 +57,13 @@ Two files separate concerns:
 
 ---
 
+## User-facing questions
+
+Discrete choices (yes/no, pick-N, approve/revise) → `AskUserQuestion`. Load via
+`ToolSearch select:AskUserQuestion` if missing. Plain text only for open-ended input.
+
+---
+
 ## Phase 0 — context loading (always runs first)
 
 Run the unified context loader (draft + catchup + skills list + registry):
@@ -89,13 +96,14 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/skill-forge/scripts/scan_structure.py"
 If a focus prompt is given, prioritize that area during pattern discovery.
 
 ### Step 2: discover patterns (2-scan rule)
-After every 2 file reads, write findings to `skill_insights.md` before continuing.
-This prevents discoveries from being lost if context fills up.
-```bash
-cat >> .claude/skill_insights.md << 'EOF'
-## Scan batch [timestamp]
-[pattern, files involved, why this could be a skill]
-EOF
+After every 2 file reads, append findings to `.claude/skill_insights.md` via `Write`
+(not shell heredoc — heredoc shifts each call, Bash allowlist can't match, non-bypass
+mode will prompt). Prevents loss if context fills up.
+
+Block format:
+```
+## Scan batch <timestamp>
+<pattern, files involved, why this could be a skill>
 ```
 
 Also note: if multiple reads result in the same helper code appearing independently,
@@ -111,7 +119,7 @@ Output format:
    Trigger: "Use when <specific, multi-step scenario>"
 ```
 
-Ask: "Which should I build first? (number, range, or 'all')"
+Ask via `AskUserQuestion` (multiSelect): one option per ranked skill + `All` + `Skip`.
 
 ---
 
@@ -170,40 +178,24 @@ allowed-tools: [only tools this skill actually needs]
 - 
 ```
 
-### Description writing rules (directly affects triggering accuracy)
+### Description writing rules
 
-The description is the primary mechanism by which Claude decides whether to use
-this skill. Three things matter:
+≤ 250 chars (Claude Code truncates from end — front-load distinctive keywords).
+Skills only trigger for multi-step workflows (3+ coordinated actions); write
+scenarios, not single verbs. Three-clause structure:
 
-1. **Triggering only happens for complex tasks.** Claude won't use a skill for
-   simple one-step queries it can handle directly. Make your trigger scenarios
-   substantive — "scaffolding a new API endpoint with tests, validation, and
-   route registration" rather than "creating a file".
+- **Use when `<specific multi-step scenario>`** — name real artifacts (file types,
+  commands, frameworks), not abstractions. Replace vague verbs ("manage",
+  "handle") with precise workflows.
+- **Even if the user just says `<short phrase>`, use when they mention
+  `<real phrasing>`** — pushy coverage for understatement. Claude undertriggers
+  by default.
+- **Do NOT use when `<simple/adjacent task>`** — list FP patterns explicitly
+  (e.g., "simple file reads, single-step edits, code explanations"). Qualify
+  keywords shared with unrelated tasks (e.g., "deploy" → "deploy with rollback
+  and health checks").
 
-2. **Be pushy.** Claude naturally undertriggers. Add explicit coverage for cases
-   where the user doesn't name the skill: "Even if the user doesn't say 'deploy',
-   use this skill when they mention pushing to staging, releasing, or going live."
-
-3. **Under 250 characters total** (Claude Code hard limit). Front-load keywords —
-   Claude may truncate from the end. Include one `Do NOT use when` to prevent
-   false positives from adjacent concepts.
-
-4. **FP/FN awareness from the start.** Two failure modes to pre-empt:
-   - *False negatives* (skill never fires): description too narrow. Fixes:
-     - Add "Even if the user just says X, use this skill when they likely need Y"
-       for cases where users understate needs.
-     - Name specific artifacts from the workflow (file types, commands, tools)
-       so the description covers real phrasing, not just abstract concepts.
-     - Front-load the most distinctive trigger keywords — Claude may truncate
-       from the end.
-   - *False positives* (skill fires when it shouldn't): description too broad. Fixes:
-     - Add `Do NOT use when` listing specific task types that are false positives
-       (e.g., "Do NOT use for simple file reads, single-step edits, or code explanations").
-     - Replace vague verbs ("manage", "handle") with precise multi-step scenarios
-       that only match when the full workflow is needed.
-     - If a keyword is shared with unrelated tasks, qualify it with a condition
-       (e.g., "deploy" → "deploy with rollback and health checks").
-   Fewer starting errors = fewer optimization rounds to converge.
+Fewer starting errors = fewer optimizer rounds to converge.
 
 ### Step 4: run the evaluator
 See **Skill evaluator** section. Write to disk only on pass ≥ 6.
@@ -231,29 +223,16 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/skill-forge/scripts/init_improve.py" "<mat
 
 ### Step 2: diagnose (content vs triggering vs both)
 
-Run these checks and classify:
+**Content:**
+- Trigger drift (too vague / too narrow), stale steps, missing edge cases, redundant steps.
+- Bundling: 3 recent uses independently wrote the same helper? → move to `scripts/`.
+- Anti-overfitting: is the fix generalizable, or patching one instance? Prefer reframing over more constraints.
+- Version drift: assumptions still match current stack?
 
-**Content diagnosis:**
-- **Trigger drift**: description too vague (over-triggers) or too narrow (never fires)?
-- **Stale steps**: commands or paths that no longer match current conventions?
-- **Missing cases**: edge cases encountered since writing?
-- **Redundant steps**: things the model can infer from context anyway?
-- **Bundling opportunity**: have multiple recent uses independently written the
-  same helper code? If so, that code belongs in `scripts/`, not repeated per-use.
-- **Anti-overfitting**: are changes actually generalizable, or only fixing one
-  specific instance? Prefer reframing with better reasoning over adding more constraints.
-- **Version drift**: skill creation assumptions still accurate for current tech stack?
+**Triggering:**
+- Rarely auto-fires despite relevance? Uses complex multi-step scenarios? Pushy coverage? Has `Do NOT use when`?
 
-**Triggering diagnosis:**
-- Is the skill rarely auto-triggered despite being relevant?
-- Does the description use complex multi-step scenarios (not simple verbs)?
-- Is there pushy coverage for cases where users don't name the skill?
-- Is there a `Do NOT use when` clause to prevent false positives?
-
-Classification:
-- Content issues found → proceed to Step 3a
-- Triggering issues found → proceed to Step 3b
-- Both → do 3a first, then 3b
+Classify → 3a (content), 3b (triggering), or both (3a first).
 
 ### Step 3a: content improvement (patch-first)
 
@@ -276,17 +255,9 @@ helper code, that code belongs in `scripts/` — write once, reference in SKILL.
    ]
    ```
    Query quality rules:
-   - **Should-trigger (FN prevention)**: vary phrasing; include cases where the user
-     understates needs ("just add a route" when they actually need full endpoint setup);
-     include cases competing with adjacent skills; use real artifacts (file paths,
-     command names, framework terms) from the codebase.
-   - **Should-not-trigger (FP prevention)**: near-misses sharing keywords but with
-     different intent — simple single-step tasks using the same domain vocabulary
-     (e.g., "read the deploy config" when the skill is for multi-step deployments).
-     Avoid obviously irrelevant queries ("what time is it") — they don't test the
-     boundary.
-   - **Intent over keywords**: the best negative cases share 2+ keywords with the
-     description but differ in complexity or intent. These expose overbroad triggers.
+   - **Should-trigger (FN)**: vary phrasing; include understatement ("just add a route" when full endpoint setup needed); include adjacent-skill competition; use real codebase artifacts (paths, commands, frameworks).
+   - **Should-not-trigger (FP)**: near-misses sharing keywords but different intent — simple single-step tasks in the same vocabulary (e.g., "read the deploy config" vs multi-step deploy). Avoid irrelevant queries ("what time is it") — they don't test the boundary.
+   - **Intent over keywords**: best negatives share 2+ keywords with the description but differ in complexity/intent. These expose overbroad triggers.
 
    Ask user to review before running.
 
@@ -327,12 +298,8 @@ Fires after: 5+ tool calls, user correction mid-task, error recovery, or explici
 ### Steps
 1. Summarize the workflow just completed in 2–3 sentences.
 2. Check registry — does an existing skill already cover this?
-3. If not covered, ask:
-   ```
-   That looked like a reusable pattern: <summary>.
-   Create a skill? [y / n / rename: ___]
-   ```
-4. On yes → run **create mode** with auto-inferred name.
+3. If not covered, ask via `AskUserQuestion`: "Reusable pattern: <summary>. Create a skill?" — options `Create` / `Rename` / `Skip`.
+4. `Create` → run **create mode** (auto-name). `Rename` → plain-text prompt for name, then create. `Skip` → silent reset.
 
 Skip if: task < 3 tool calls, pure read-only, or simple single-file edit.
 
@@ -340,64 +307,43 @@ Skip if: task < 3 tool calls, pure read-only, or simple single-file edit.
 
 ## Skill evaluator
 
-Score before writing to disk. The goal is to catch both content problems and
-description problems before the skill lands in production.
+Score before writing to disk.
 
 **Trigger quality (0–3)**
-- 3: Multi-step scenario example; pushy coverage ("even if they don't say X");
-  `Do NOT use when` with specific exclusions; under 250 chars; front-loads
-  keywords; no vague verbs ("manage", "handle"); shared keywords qualified with
-  conditions. When optimizer has run, FP/FN counts drop each round.
-- 2: Has `Use when` but missing pushy coverage, or `Do NOT use when` too vague
-- 1: Vague description matching many things, uses simple verbs, or only mentions
-  one-step tasks. Likely to FP on keyword overlap.
-- 0: No description, or matches everything
+- 3: three-clause structure complete (Use when / Even if / Do NOT); ≤ 250 chars;
+  front-loaded keywords; no vague verbs; qualified shared keywords. Optimizer FP/FN drop each round.
+- 2: has `Use when` but missing pushy coverage, or `Do NOT use when` too vague.
+- 1: vague, simple verbs, or one-step tasks only. Likely FPs on keyword overlap.
+- 0: no description, or matches everything.
 
 **Step clarity (0–3)**
-- 3: Every step has a concrete action; explains WHY not just WHAT
-- 2: Most steps concrete, 1–2 vague
-- 1: High-level summaries only
-- 0: No steps or contradictory steps
+- 3: every step concrete; explains WHY not just WHAT.
+- 2: most concrete, 1–2 vague.
+- 1: high-level summaries only.
+- 0: no steps, or contradictory.
 
 **Completeness (0–2)**
-- 2: Has prerequisites, steps, verification, at least one note
-- 1: Missing verification or notes
-- 0: Missing steps
+- 2: prerequisites + steps + verification + ≥1 note.
+- 1: missing verification or notes.
+- 0: missing steps.
 
-**Non-discrimination check (bonus)**
-After the skill runs in production: if a given assertion passes 100% of the time
-both with-skill and without-skill, that assertion tests something Claude already
-does naturally — it doesn't validate the skill's value. Flag these and remove or
-sharpen them on next improve.
+**Non-discrimination check (bonus, post-production):** if an assertion passes
+100% both with- and without-skill, it's testing Claude's baseline, not the
+skill. Flag and sharpen on next improve.
 
-**Threshold:** ≥ 6 → write to disk. 4–5 → revise once, ask user. < 4 → show
-breakdown, ask user how to proceed.
+**Threshold:** ≥ 6 → write. 4–5 → revise once, ask user. < 4 → show breakdown, ask user.
 
 ---
 
 ## The 3-Strike error protocol
 
-```
-ATTEMPT 1: diagnose and fix
-  → Read the evaluation failure carefully
-  → Apply a targeted change to skill_draft.md
+1. Read the failure, apply a targeted change to `skill_draft.md`.
+2. Same failure → different phrasing / metaphor / structure. Never repeat.
+3. Rethink scope — consider splitting into two narrower skills.
+4. After 3 → share failures, ask user for guidance on scope or trigger wording.
 
-ATTEMPT 2: alternative approach
-  → Same failure? Try different phrasing, different metaphor, different structure
-  → Never repeat the exact same failing approach
-
-ATTEMPT 3: broader rethink
-  → Question whether this is the right skill scope
-  → Consider splitting into two narrower skills
-
-AFTER 3 FAILURES: ask the user
-  → Share the specific evaluation failures
-  → Ask for guidance on scope or trigger wording
-```
-
-When improving a skill: generalize from failures rather than patching only the
-failing test case. A skill that works for 3 test cases but fails on the 4th real
-use is worse than one that works moderately well on all of them.
+Generalize from failures; don't patch the one failing case. A skill that passes
+3 tests but breaks on the 4th real use is worse than one moderately good on all.
 
 ---
 

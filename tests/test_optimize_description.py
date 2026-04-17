@@ -216,19 +216,19 @@ class TestEvaluateSingle:
 
     @patch("optimize_description.call_claude")
     def test_prompt_includes_undertrigger_bias(self, mock_claude: object) -> None:
-        """DSPy: prompt contains undertrigger bias instruction."""
+        """DSPy: prompt biases toward NO when uncertain."""
         mock_claude.return_value = "YES"
         evaluate_single("desc", "query", runs=1)
-        prompt_used = mock_claude.call_args[0][0]
-        assert "Undertriggering is safer" in prompt_used
+        prompt_used = mock_claude.call_args[0][0].lower()
+        assert "bias toward no" in prompt_used or "undertriggering is safer" in prompt_used
 
     @patch("optimize_description.call_claude")
     def test_prompt_includes_complex_task_context(self, mock_claude: object) -> None:
-        """DSPy: prompt explains skills only trigger for multi-step workflows."""
+        """DSPy: prompt explains skills trigger for multi-step workflows."""
         mock_claude.return_value = "NO"
         evaluate_single("desc", "query", runs=1)
-        prompt_used = mock_claude.call_args[0][0]
-        assert "multi-step workflows" in prompt_used
+        prompt_used = mock_claude.call_args[0][0].lower()
+        assert "multi-step" in prompt_used
 
 
 # ── TestCallClaude ──────────────────────────────────

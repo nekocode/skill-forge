@@ -38,14 +38,10 @@ def should_trigger(state: dict) -> tuple[bool, str]:
 
 def build_message(reason: str) -> str:
     lines = [
-        f"[skill-forge] Potential reusable pattern detected ({reason}).",
-        "",
-        "Ask the user:",
-        "  'That looked like a reusable workflow. Should I create a skill for it?'",
-        "  Options to present: [y] Create skill  [n] Skip",
-        "",
-        "If user says yes → run /skill-forge create <prompt describing the workflow>.",
-        "If user says no → reset the counter silently, do not mention skill-forge again.",
+        f"[skill-forge] Reusable pattern detected ({reason}).",
+        "Ask via AskUserQuestion (load with ToolSearch if missing): "
+        "'Create a skill for this workflow?' — options Create / Skip.",
+        "Create → /skill-forge create <workflow prompt>. Skip → reset silently, drop it.",
     ]
     return "\n".join(lines)
 

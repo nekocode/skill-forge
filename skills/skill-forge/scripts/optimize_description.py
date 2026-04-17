@@ -31,17 +31,14 @@ CLAUDE_MODEL = "claude-sonnet-4-6"
 # Placeholders: {description}, {query} are filled at call site.
 
 EVALUATE_TEMPLATE = (
-    "You are judging whether a Claude Code skill should activate for a user query.\n\n"
-    "Key rules:\n"
-    "- Skills ONLY activate for multi-step workflows (3+ coordinated actions).\n"
-    "- Simple tasks (read a file, fix a typo, explain code) NEVER trigger skills.\n"
-    "- Match the INTENT, not just keywords — 'create a route' is simple, "
-    "'set up a new endpoint with tests, validation, and route registration' is a skill.\n"
-    "- When uncertain, answer NO. Undertriggering is safer than overtriggering.\n\n"
-    "Skill description:\n{description}\n\n"
-    "User query:\n{query}\n\n"
-    "Does this query require the multi-step workflow described by the skill? "
-    "Answer only YES or NO."
+    "You are a skill activation filter for Claude Code. Your job: decide if a user query "
+    "warrants invoking a specialized multi-step skill.\n\nSkill "
+    "description:\n{description}\n\nUser query:\n{query}\n\nAsk yourself:\n1. Does the "
+    "query require **coordinated, sequential actions** — not just a single operation?\n2. "
+    "Would a developer expect this to take **multiple distinct phases** to complete?\n3. "
+    "Does the skill description **closely match the problem being solved**, not just "
+    "share keywords?\n\nIf all three are YES, output YES. Otherwise output NO.\n\nBias "
+    "toward NO — a falsely triggered skill is more disruptive than a missed one."
 )
 
 IMPROVE_FN_GUIDANCE = (
@@ -135,19 +132,23 @@ def split_train_test(
 # ── Claude CLI wrapper ───────────────────────────────
 
 
-def call_claude(prompt: str) -> str:
-    """Call claude --print subprocess, return stdout.
+def _call_claude_once(prompt: str) -> str:
+    """Single claude --print invocation; empty on failure.
 
-    Single retry with 2s backoff on transient failure (timeout, empty response).
-    Final failure returns empty string.
+    cwd=/tmp keeps the CLI from auto-loading project CLAUDE.md and leaking
+    house style into the response.
     """
     cmd = ["claude", "--model", CLAUDE_MODEL, "--print", "-p", prompt]
-    result = run_subprocess(cmd, timeout=60)
+    return run_subprocess(cmd, timeout=60, cwd="/tmp")
+
+
+def call_claude(prompt: str) -> str:
+    """Call claude --print with a 2s-backoff retry on empty response."""
+    result = _call_claude_once(prompt)
     if result:
         return result
-    # single retry — claude --print intermittently times out on complex prompts
     time.sleep(2)
-    return run_subprocess(cmd, timeout=60)
+    return _call_claude_once(prompt)
 
 
 # ── DSPy-inspired data structures ───────────────────
