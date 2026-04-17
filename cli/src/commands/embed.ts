@@ -25,51 +25,53 @@ export interface EmbedVersion {
 // ── Path rewrite constants ───────────────────────────────────────────────
 
 const PLUGIN_ROOT_HOOKS = "${CLAUDE_PLUGIN_ROOT}/hooks/";
-const EMBED_HOOKS_PATH = "${CLAUDE_PROJECT_DIR}/.claude/hooks/skill-forge/";
-
 const PLUGIN_ROOT_SKILLS = "${CLAUDE_PLUGIN_ROOT}/skills/";
-const EMBED_SKILLS_PATH = "${CLAUDE_PROJECT_DIR}/.claude/skills/";
 
-// Marker used to identify skill-forge entries in settings.json
-const SF_MARKER = ".claude/hooks/skill-forge/";
+// _ENV form: expanded by hook processes, which Claude Code launches with
+// CLAUDE_PROJECT_DIR set. Used in hooks.json entries.
+const EMBED_HOOKS_PATH_ENV = "${CLAUDE_PROJECT_DIR}/.claude/hooks/skill-forge/";
+const EMBED_SKILLS_PATH_ENV = "${CLAUDE_PROJECT_DIR}/.claude/skills/";
+
+// _REL form: Bash tool runs with CWD = project root but does NOT receive
+// CLAUDE_PROJECT_DIR. Used in SKILL.md body and command markdown.
+const EMBED_HOOKS_PATH_REL = ".claude/hooks/skill-forge/";
+const EMBED_SKILLS_PATH_REL = ".claude/skills/";
 
 /** True if a settings.json hook entry belongs to skill-forge. */
 function isSkillForgeEntry(entry: any): boolean {
-  return JSON.stringify(entry).includes(SF_MARKER);
+  return JSON.stringify(entry).includes(EMBED_HOOKS_PATH_REL);
 }
 
-// ── rewritePluginPathsInText ─────────────────────────────────────────────
+// ── rewriteHooksJsonPaths ────────────────────────────────────────────────
 
-/**
- * Rewrite plugin-mode path variables to embed-mode paths in arbitrary text.
- * ${CLAUDE_PLUGIN_ROOT}/hooks/xxx.py → ${CLAUDE_PROJECT_DIR}/.claude/hooks/skill-forge/xxx.py
- * ${CLAUDE_PLUGIN_ROOT}/skills/...  → ${CLAUDE_PROJECT_DIR}/.claude/skills/...
- * Used for both hooks.json and file contents (SKILL.md, commands).
- */
-export function rewritePluginPathsInText(text: string): string {
+/** Rewrite plugin paths for hooks.json entries (expanded by hook process). */
+export function rewriteHooksJsonPaths(text: string): string {
   return text
-    .split(PLUGIN_ROOT_HOOKS).join(EMBED_HOOKS_PATH)
-    .split(PLUGIN_ROOT_SKILLS).join(EMBED_SKILLS_PATH);
+    .split(PLUGIN_ROOT_HOOKS).join(EMBED_HOOKS_PATH_ENV)
+    .split(PLUGIN_ROOT_SKILLS).join(EMBED_SKILLS_PATH_ENV);
+}
+
+// ── rewriteContentPaths ──────────────────────────────────────────────────
+
+/** Rewrite plugin paths for markdown bodies (run via Bash tool, CWD-based). */
+export function rewriteContentPaths(text: string): string {
+  return text
+    .split(PLUGIN_ROOT_HOOKS).join(EMBED_HOOKS_PATH_REL)
+    .split(PLUGIN_ROOT_SKILLS).join(EMBED_SKILLS_PATH_REL);
 }
 
 // ── convertHooksForEmbed ─────────────────────────────────────────────────
 
-/**
- * Rewrite hook command paths from plugin-mode variables to embed-mode paths.
- */
+/** Rewrite hook command paths from plugin-mode variables to embed-mode. */
 export function convertHooksForEmbed(pluginHooks: any): any {
-  return JSON.parse(rewritePluginPathsInText(JSON.stringify(pluginHooks)));
+  return JSON.parse(rewriteHooksJsonPaths(JSON.stringify(pluginHooks)));
 }
 
 // ── rewriteCommandContent ────────────────────────────────────────────────
 
-/**
- * Rewrite command markdown content for embed mode:
- * - "skill-forge:skill-forge" → "skill-forge" (no plugin namespace in embed)
- * - ${CLAUDE_PLUGIN_ROOT} paths → ${CLAUDE_PROJECT_DIR}/.claude/ paths
- */
+/** Strip plugin namespace and rewrite paths in command markdown. */
 export function rewriteCommandContent(text: string): string {
-  return rewritePluginPathsInText(
+  return rewriteContentPaths(
     text.split("skill-forge:skill-forge").join("skill-forge"),
   );
 }
@@ -78,7 +80,7 @@ export function rewriteCommandContent(text: string): string {
 
 /**
  * Merge embed hook entries into existing settings.json content.
- * - Removes any existing skill-forge entries (identified by SF_MARKER)
+ * - Removes any existing skill-forge entries (identified by path marker)
  * - Appends new embed entries per event
  * - Preserves all non-hook settings
  */
@@ -284,11 +286,13 @@ export function embedInstall(projectRoot: string, tag?: string): string {
     const destSkillsDir = path.join(projectRoot, ".claude", "skills", "skill-forge");
     if (fs.existsSync(srcSkillsDir)) {
       copyDirRecursive(srcSkillsDir, destSkillsDir);
-      // Rewrite SKILL.md inline script paths for embed mode
+      // Rewrite SKILL.md inline script paths for embed mode. Use content-mode
+      // (relative) paths since body bash blocks run via Claude's Bash tool
+      // which doesn't set CLAUDE_PROJECT_DIR.
       const skillMdPath = path.join(destSkillsDir, "SKILL.md");
       if (fs.existsSync(skillMdPath)) {
         const content = fs.readFileSync(skillMdPath, "utf-8");
-        fs.writeFileSync(skillMdPath, rewritePluginPathsInText(content));
+        fs.writeFileSync(skillMdPath, rewriteContentPaths(content));
       }
     }
 

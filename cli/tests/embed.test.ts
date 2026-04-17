@@ -20,7 +20,8 @@ import {
   removeEmbedFiles,
   detectEmbedInstall,
   embedInstall,
-  rewritePluginPathsInText,
+  rewriteHooksJsonPaths,
+  rewriteContentPaths,
   rewriteCommandContent,
 } from "../src/commands/embed.js";
 import { embedCommandName, EMBED_COMMANDS } from "../src/types.js";
@@ -97,26 +98,52 @@ describe("convertHooksForEmbed", () => {
   });
 });
 
-// ── rewritePluginPathsInText ──────────────────────────────────────────────
+// ── rewriteHooksJsonPaths (hooks.json) ────────────────────────────────────
 
-describe("rewritePluginPathsInText", () => {
-  it("rewrites skills path in arbitrary text (e.g., SKILL.md body)", () => {
+describe("rewriteHooksJsonPaths", () => {
+  it("rewrites skills path for hooks context using CLAUDE_PROJECT_DIR", () => {
     const input =
       'python3 "${CLAUDE_PLUGIN_ROOT}/skills/skill-forge/scripts/phase0_load.py"';
-    const out = rewritePluginPathsInText(input);
+    const out = rewriteHooksJsonPaths(input);
     expect(out).toContain("${CLAUDE_PROJECT_DIR}/.claude/skills/skill-forge/scripts/phase0_load.py");
     expect(out).not.toContain("${CLAUDE_PLUGIN_ROOT}");
   });
 
-  it("rewrites hooks path in arbitrary text", () => {
+  it("rewrites hooks path for hooks context using CLAUDE_PROJECT_DIR", () => {
     const input = 'python3 "${CLAUDE_PLUGIN_ROOT}/hooks/skill_check.py"';
-    const out = rewritePluginPathsInText(input);
+    const out = rewriteHooksJsonPaths(input);
     expect(out).toContain("${CLAUDE_PROJECT_DIR}/.claude/hooks/skill-forge/skill_check.py");
   });
 
   it("preserves unrelated text", () => {
     const input = "no plugin vars here";
-    expect(rewritePluginPathsInText(input)).toBe(input);
+    expect(rewriteHooksJsonPaths(input)).toBe(input);
+  });
+});
+
+// ── rewriteContentPaths (SKILL.md body, commands) ─────────────────────────
+
+describe("rewriteContentPaths", () => {
+  it("rewrites skills path to relative form (Bash tool CWD = project root)", () => {
+    const input =
+      'python3 "${CLAUDE_PLUGIN_ROOT}/skills/skill-forge/scripts/phase0_load.py"';
+    const out = rewriteContentPaths(input);
+    expect(out).toContain('python3 ".claude/skills/skill-forge/scripts/phase0_load.py"');
+    expect(out).not.toContain("${CLAUDE_PLUGIN_ROOT}");
+    expect(out).not.toContain("${CLAUDE_PROJECT_DIR}");
+  });
+
+  it("rewrites hooks path to relative form", () => {
+    const input = 'python3 "${CLAUDE_PLUGIN_ROOT}/hooks/skill_check.py"';
+    const out = rewriteContentPaths(input);
+    expect(out).toContain('python3 ".claude/hooks/skill-forge/skill_check.py"');
+    expect(out).not.toContain("${CLAUDE_PLUGIN_ROOT}");
+    expect(out).not.toContain("${CLAUDE_PROJECT_DIR}");
+  });
+
+  it("preserves unrelated text", () => {
+    const input = "no plugin vars here";
+    expect(rewriteContentPaths(input)).toBe(input);
   });
 });
 
@@ -129,11 +156,13 @@ describe("rewriteCommandContent", () => {
     expect(out).toBe("Invoke the skill-forge skill with `scan` mode.");
   });
 
-  it("also rewrites embedded CLAUDE_PLUGIN_ROOT paths", () => {
+  it("rewrites embedded CLAUDE_PLUGIN_ROOT paths to relative form", () => {
     const input =
       'See "${CLAUDE_PLUGIN_ROOT}/skills/skill-forge/scripts/phase0_load.py". Invoke skill-forge:skill-forge.';
     const out = rewriteCommandContent(input);
-    expect(out).toContain("${CLAUDE_PROJECT_DIR}/.claude/skills/skill-forge/scripts/phase0_load.py");
+    expect(out).toContain('.claude/skills/skill-forge/scripts/phase0_load.py');
+    expect(out).not.toContain("${CLAUDE_PLUGIN_ROOT}");
+    expect(out).not.toContain("${CLAUDE_PROJECT_DIR}");
     expect(out).not.toContain("skill-forge:skill-forge");
   });
 });
@@ -625,13 +654,15 @@ describe("embedInstall", () => {
     expect(stopCmd).toContain("${CLAUDE_PROJECT_DIR}/.claude/hooks/skill-forge/");
     expect(stopCmd).not.toContain("${CLAUDE_PLUGIN_ROOT}");
 
-    // SKILL.md inline script paths rewritten for embed mode
+    // SKILL.md inline script paths rewritten to relative form for embed mode
+    // (Bash tool doesn't expose CLAUDE_PROJECT_DIR)
     const skillMd = fs.readFileSync(
       path.join(tmpDir, ".claude", "skills", "skill-forge", "SKILL.md"),
       "utf-8",
     );
-    expect(skillMd).toContain("${CLAUDE_PROJECT_DIR}/.claude/skills/skill-forge/scripts/phase0_load.py");
+    expect(skillMd).toContain('python3 ".claude/skills/skill-forge/scripts/phase0_load.py"');
     expect(skillMd).not.toContain("${CLAUDE_PLUGIN_ROOT}");
+    expect(skillMd).not.toContain("${CLAUDE_PROJECT_DIR}");
 
     // Command files: plugin namespace stripped so /<cmd> invokes embed skill
     const scanMd = fs.readFileSync(
