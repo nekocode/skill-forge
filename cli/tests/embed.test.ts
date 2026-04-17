@@ -20,6 +20,8 @@ import {
   removeEmbedFiles,
   detectEmbedInstall,
   embedInstall,
+  rewritePluginPathsInText,
+  rewriteCommandContent,
 } from "../src/commands/embed.js";
 import { embedCommandName, EMBED_COMMANDS } from "../src/types.js";
 
@@ -92,6 +94,47 @@ describe("convertHooksForEmbed", () => {
     const hooks = result.hooks.PostToolUse[0].hooks;
     expect(hooks[0].command).toContain("${CLAUDE_PROJECT_DIR}/.claude/hooks/skill-forge/");
     expect(hooks[1].command).toContain("${CLAUDE_PROJECT_DIR}/.claude/skills/");
+  });
+});
+
+// ── rewritePluginPathsInText ──────────────────────────────────────────────
+
+describe("rewritePluginPathsInText", () => {
+  it("rewrites skills path in arbitrary text (e.g., SKILL.md body)", () => {
+    const input =
+      'python3 "${CLAUDE_PLUGIN_ROOT}/skills/skill-forge/scripts/phase0_load.py"';
+    const out = rewritePluginPathsInText(input);
+    expect(out).toContain("${CLAUDE_PROJECT_DIR}/.claude/skills/skill-forge/scripts/phase0_load.py");
+    expect(out).not.toContain("${CLAUDE_PLUGIN_ROOT}");
+  });
+
+  it("rewrites hooks path in arbitrary text", () => {
+    const input = 'python3 "${CLAUDE_PLUGIN_ROOT}/hooks/skill_check.py"';
+    const out = rewritePluginPathsInText(input);
+    expect(out).toContain("${CLAUDE_PROJECT_DIR}/.claude/hooks/skill-forge/skill_check.py");
+  });
+
+  it("preserves unrelated text", () => {
+    const input = "no plugin vars here";
+    expect(rewritePluginPathsInText(input)).toBe(input);
+  });
+});
+
+// ── rewriteCommandContent ─────────────────────────────────────────────────
+
+describe("rewriteCommandContent", () => {
+  it("strips plugin namespace from skill-forge:skill-forge reference", () => {
+    const input = "Invoke the skill-forge:skill-forge skill with `scan` mode.";
+    const out = rewriteCommandContent(input);
+    expect(out).toBe("Invoke the skill-forge skill with `scan` mode.");
+  });
+
+  it("also rewrites embedded CLAUDE_PLUGIN_ROOT paths", () => {
+    const input =
+      'See "${CLAUDE_PLUGIN_ROOT}/skills/skill-forge/scripts/phase0_load.py". Invoke skill-forge:skill-forge.';
+    const out = rewriteCommandContent(input);
+    expect(out).toContain("${CLAUDE_PROJECT_DIR}/.claude/skills/skill-forge/scripts/phase0_load.py");
+    expect(out).not.toContain("skill-forge:skill-forge");
   });
 });
 
@@ -459,17 +502,29 @@ describe("embedInstall", () => {
 
   /** Build a minimal tarball structure in a dir that mimics extracted release */
   function buildFakeExtract(extractDir: string) {
-    // commands/
+    // commands/ — include realistic plugin-mode references so rewrites can be verified
     const commandsDir = path.join(extractDir, "commands");
     fs.mkdirSync(commandsDir, { recursive: true });
-    fs.writeFileSync(path.join(commandsDir, "scan.md"), "# scan");
-    fs.writeFileSync(path.join(commandsDir, "create.md"), "# create");
-    fs.writeFileSync(path.join(commandsDir, "improve.md"), "# improve");
+    fs.writeFileSync(
+      path.join(commandsDir, "scan.md"),
+      "Invoke the skill-forge:skill-forge skill with `scan` mode.",
+    );
+    fs.writeFileSync(
+      path.join(commandsDir, "create.md"),
+      "Invoke the skill-forge:skill-forge skill with `create` mode.",
+    );
+    fs.writeFileSync(
+      path.join(commandsDir, "improve.md"),
+      "Invoke the skill-forge:skill-forge skill with `improve` mode.",
+    );
 
-    // skills/skill-forge/
+    // skills/skill-forge/ — include plugin-root script path to verify rewrite
     const sfSkillDir = path.join(extractDir, "skills", "skill-forge");
     fs.mkdirSync(sfSkillDir, { recursive: true });
-    fs.writeFileSync(path.join(sfSkillDir, "SKILL.md"), "# skill");
+    fs.writeFileSync(
+      path.join(sfSkillDir, "SKILL.md"),
+      '# skill\npython3 "${CLAUDE_PLUGIN_ROOT}/skills/skill-forge/scripts/phase0_load.py"\n',
+    );
 
     // hooks/
     const hooksDir = path.join(extractDir, "hooks");
@@ -569,6 +624,22 @@ describe("embedInstall", () => {
     const stopCmd = settings.hooks?.Stop?.[0]?.hooks?.[0]?.command ?? "";
     expect(stopCmd).toContain("${CLAUDE_PROJECT_DIR}/.claude/hooks/skill-forge/");
     expect(stopCmd).not.toContain("${CLAUDE_PLUGIN_ROOT}");
+
+    // SKILL.md inline script paths rewritten for embed mode
+    const skillMd = fs.readFileSync(
+      path.join(tmpDir, ".claude", "skills", "skill-forge", "SKILL.md"),
+      "utf-8",
+    );
+    expect(skillMd).toContain("${CLAUDE_PROJECT_DIR}/.claude/skills/skill-forge/scripts/phase0_load.py");
+    expect(skillMd).not.toContain("${CLAUDE_PLUGIN_ROOT}");
+
+    // Command files: plugin namespace stripped so /<cmd> invokes embed skill
+    const scanMd = fs.readFileSync(
+      path.join(tmpDir, ".claude", "commands", embedCommandName("scan.md")),
+      "utf-8",
+    );
+    expect(scanMd).toContain("Invoke the skill-forge skill");
+    expect(scanMd).not.toContain("skill-forge:skill-forge");
   });
 
   it("uses caller-supplied tag, skips gh api fetch", () => {

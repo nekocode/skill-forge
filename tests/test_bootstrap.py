@@ -76,3 +76,33 @@ class TestResolveScriptsPath:
 
         # Fallback: hooks/ parent → skills/skill-forge/scripts/
         assert result.endswith(str(Path("skills") / "skill-forge" / "scripts"))
+
+    def test_embed_shape_fallback_when_env_missing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """If both env vars are unset, resolve via _bootstrap.py embed shape:
+
+        .claude/hooks/skill-forge/_bootstrap.py → .claude/skills/skill-forge/scripts/
+        """
+        # Simulate embed layout
+        hooks_dir = tmp_path / ".claude" / "hooks" / "skill-forge"
+        hooks_dir.mkdir(parents=True)
+        scripts_dir = tmp_path / ".claude" / "skills" / "skill-forge" / "scripts"
+        scripts_dir.mkdir(parents=True)
+
+        # Copy _bootstrap.py into the fake embed layout so resolve_scripts_path()
+        # uses its __file__ as the anchor
+        fake_bootstrap = hooks_dir / "_bootstrap.py"
+        fake_bootstrap.write_text((_HOOKS_DIR / "_bootstrap.py").read_text())
+
+        # Import via isolated loader so __file__ reflects the embed location
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("_fake_bootstrap", fake_bootstrap)
+        assert spec and spec.loader
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        monkeypatch.delenv("CLAUDE_PLUGIN_ROOT", raising=False)
+        monkeypatch.delenv("CLAUDE_PROJECT_DIR", raising=False)
+
+        assert module.resolve_scripts_path() == str(scripts_dir)

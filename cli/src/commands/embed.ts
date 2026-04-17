@@ -38,20 +38,40 @@ function isSkillForgeEntry(entry: any): boolean {
   return JSON.stringify(entry).includes(SF_MARKER);
 }
 
+// ── rewritePluginPathsInText ─────────────────────────────────────────────
+
+/**
+ * Rewrite plugin-mode path variables to embed-mode paths in arbitrary text.
+ * ${CLAUDE_PLUGIN_ROOT}/hooks/xxx.py → ${CLAUDE_PROJECT_DIR}/.claude/hooks/skill-forge/xxx.py
+ * ${CLAUDE_PLUGIN_ROOT}/skills/...  → ${CLAUDE_PROJECT_DIR}/.claude/skills/...
+ * Used for both hooks.json and file contents (SKILL.md, commands).
+ */
+export function rewritePluginPathsInText(text: string): string {
+  return text
+    .split(PLUGIN_ROOT_HOOKS).join(EMBED_HOOKS_PATH)
+    .split(PLUGIN_ROOT_SKILLS).join(EMBED_SKILLS_PATH);
+}
+
 // ── convertHooksForEmbed ─────────────────────────────────────────────────
 
 /**
  * Rewrite hook command paths from plugin-mode variables to embed-mode paths.
- * ${CLAUDE_PLUGIN_ROOT}/hooks/xxx.py → ${CLAUDE_PROJECT_DIR}/.claude/hooks/skill-forge/xxx.py
- * ${CLAUDE_PLUGIN_ROOT}/skills/...  → ${CLAUDE_PROJECT_DIR}/.claude/skills/...
  */
 export function convertHooksForEmbed(pluginHooks: any): any {
-  let json = JSON.stringify(pluginHooks);
-  // Replace hooks path first (more specific)
-  json = json.split(PLUGIN_ROOT_HOOKS).join(EMBED_HOOKS_PATH);
-  // Replace skills path
-  json = json.split(PLUGIN_ROOT_SKILLS).join(EMBED_SKILLS_PATH);
-  return JSON.parse(json);
+  return JSON.parse(rewritePluginPathsInText(JSON.stringify(pluginHooks)));
+}
+
+// ── rewriteCommandContent ────────────────────────────────────────────────
+
+/**
+ * Rewrite command markdown content for embed mode:
+ * - "skill-forge:skill-forge" → "skill-forge" (no plugin namespace in embed)
+ * - ${CLAUDE_PLUGIN_ROOT} paths → ${CLAUDE_PROJECT_DIR}/.claude/ paths
+ */
+export function rewriteCommandContent(text: string): string {
+  return rewritePluginPathsInText(
+    text.split("skill-forge:skill-forge").join("skill-forge"),
+  );
 }
 
 // ── mergeHooksIntoSettings ───────────────────────────────────────────────
@@ -252,7 +272,9 @@ export function embedInstall(projectRoot: string, tag?: string): string {
       for (const file of EMBED_COMMANDS) {
         const src = path.join(srcCommandsDir, file);
         if (fs.existsSync(src)) {
-          fs.copyFileSync(src, path.join(destCommandsDir, embedCommandName(file)));
+          const dest = path.join(destCommandsDir, embedCommandName(file));
+          const content = fs.readFileSync(src, "utf-8");
+          fs.writeFileSync(dest, rewriteCommandContent(content));
         }
       }
     }
@@ -262,6 +284,12 @@ export function embedInstall(projectRoot: string, tag?: string): string {
     const destSkillsDir = path.join(projectRoot, ".claude", "skills", "skill-forge");
     if (fs.existsSync(srcSkillsDir)) {
       copyDirRecursive(srcSkillsDir, destSkillsDir);
+      // Rewrite SKILL.md inline script paths for embed mode
+      const skillMdPath = path.join(destSkillsDir, "SKILL.md");
+      if (fs.existsSync(skillMdPath)) {
+        const content = fs.readFileSync(skillMdPath, "utf-8");
+        fs.writeFileSync(skillMdPath, rewritePluginPathsInText(content));
+      }
     }
 
     // Copy hooks/*.py → .claude/hooks/skill-forge/
