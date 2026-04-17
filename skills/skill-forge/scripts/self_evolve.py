@@ -98,19 +98,25 @@ def _throttle() -> None:
         _last_launch_time = time.monotonic()
 
 
-def call_claude(prompt: str) -> str:
-    """Throttled claude --print, with one throttled retry on empty response.
+# 3 attempts absorbs transient empty responses under parallel claude-CLI load.
+_CALL_CLAUDE_MAX_ATTEMPTS = 3
 
-    Owning the retry here (instead of inside `optimize_description.call_claude`)
+
+def call_claude(prompt: str) -> str:
+    """Throttled claude --print with bounded retries on empty response.
+
+    Owning the retry here (instead of in `optimize_description.call_claude`)
     keeps every API launch — primary AND retry — inside the RPM budget. The
     module-level binding is the patch target for tests.
     """
-    _throttle()
-    result = _raw_call_claude(prompt)
-    if result:
-        return result
-    _throttle()
-    return _raw_call_claude(prompt)
+    for _ in range(_CALL_CLAUDE_MAX_ATTEMPTS):
+        _throttle()
+        result = _raw_call_claude(prompt)
+        if result:
+            return result
+    _log(f"  [call_claude] empty after {_CALL_CLAUDE_MAX_ATTEMPTS} attempts; "
+         f"prompt prefix: {prompt[:80]!r}")
+    return ""
 
 
 def _run_parallel(fn: Callable[[_T], _U], items: Iterable[_T]) -> list[_U]:
@@ -249,11 +255,18 @@ def collect_eval_data(skills_dir: Path) -> list[dict]:
 # ── scoring functions ───────────────────────────────
 
 
+_DEFAULT_MOCK_DESC = "A multi-step workflow skill for complex tasks"
+
+
 def score_evaluator_prompt(
     template: str,
     eval_data: list[dict],
 ) -> float:
     """Score an evaluate prompt template against labeled eval data.
+
+    Per-case description preferred (falls back to `_DEFAULT_MOCK_DESC`) so the
+    template is judged on distinguishing matching vs. non-matching pairs, not
+    on a single fixed description that happens to match every labeled case.
 
     Returns accuracy 0.0-1.0. Single call per case (no majority vote) for speed.
     Cases are evaluated in parallel; the global rate limiter gates API invocation.
@@ -261,12 +274,12 @@ def score_evaluator_prompt(
     if not eval_data:
         return 0.0
 
-    # cap to avoid unbounded API calls on large eval sets
-    capped = eval_data[:20]
+    # cap 30: balances variance-reduction (larger sample) against API budget.
+    capped = eval_data[:30]
 
     def _judge(item: dict) -> bool:
         prompt = template.format(
-            description="A multi-step workflow skill for complex tasks",
+            description=item.get("description") or _DEFAULT_MOCK_DESC,
             query=item.get("query", ""),
         )
         response = call_claude(prompt)
@@ -277,12 +290,49 @@ def score_evaluator_prompt(
     return sum(1 for r in results if r) / len(capped)
 
 
+# One case per theme forces guidance prompts to generalize across domains,
+# not overfit whichever N cases happen to sort first in trigger_evals.json.
+# `"api "` has a trailing space to avoid substring hits inside words like
+# `apiary` / `graphiql`; switch to word-boundary regex if themes grow.
+_THEME_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("deploy", ("deploy", "release", "production", "staging", "rollback")),
+    ("migration", ("migrat", "schema", "seed", "backfill")),
+    ("ci", ("ci/cd", "pipeline", "github actions", "jenkins", "workflow")),
+    ("test", ("test", "coverage", "fixture", "integration test")),
+    ("api", ("endpoint", "route", "api ")),
+)
+
+
+def _sample_by_theme(cases: list[dict], limit: int = 3) -> list[dict]:
+    """Pick up to one case per theme for diversity, then top up to `limit` from the rest."""
+    picked: list[dict] = []
+    used_idx: set[int] = set()
+    for _, keywords in _THEME_KEYWORDS:
+        if len(picked) >= limit:
+            break
+        for i, item in enumerate(cases):
+            if i in used_idx:
+                continue
+            query = item.get("query", "").lower()
+            if any(k in query for k in keywords):
+                picked.append(item)
+                used_idx.add(i)
+                break
+    for i, item in enumerate(cases):
+        if len(picked) >= limit:
+            break
+        if i not in used_idx:
+            picked.append(item)
+            used_idx.add(i)
+    return picked
+
+
 def score_guidance_prompt(guidance: str, guidance_type: str, eval_data: list[dict]) -> float:
     """Score a guidance prompt by checking structural quality of improvement output."""
     mock_desc = "Use when deploying code to production environments"
     is_fn = guidance_type == "improve_fn"
-    # filter by type first, then slice — pre-slicing may exclude all matching cases
-    cases = [item for item in eval_data if item.get("should_trigger", False) == is_fn][:3]
+    filtered = [item for item in eval_data if item.get("should_trigger", False) == is_fn]
+    cases = _sample_by_theme(filtered, limit=3)
     failures = "\n".join(f"- {c['query']}" for c in cases)
     label = "False negatives — missed" if is_fn else "False positives — triggered incorrectly"
 
@@ -315,44 +365,59 @@ def score_guidance_prompt(guidance: str, guidance_type: str, eval_data: list[dic
     return score
 
 
+_INSTRUCTION_MOCK_TASKS: tuple[str, ...] = (
+    "database migration with schema backup, migration script execution, "
+    "data validation, and seed update",
+    "deploy to production: build artifacts, bump version, push container image, "
+    "update k8s manifest, run smoke tests, and rollback on health check failure",
+    "CI pipeline setup: configure secrets, write workflow file, add matrix tests, "
+    "cache dependencies, and enforce branch protection",
+    "integration test run: seed fixtures, spin up test containers, execute test "
+    "suite, collect coverage, tear down environment",
+)
+
+_JUDGE_PROMPT = (
+    "Score a skill trigger description 0-10 on how well it would activate "
+    "correctly in Claude Code.\n\nCriteria (1-2 points each):\n"
+    "1. Names SPECIFIC multi-step actions (not vague 'manage'/'handle'/'work with')\n"
+    "2. Clear POSITIVE trigger signal — user phrases that should activate it\n"
+    "3. Clear NEGATIVE exclusion — 'do NOT use when X' for near-miss cases\n"
+    "4. Concise: under ~250 chars, no fluff\n"
+    "5. Domain keywords front-loaded (first 50 chars hint at what it does)\n\n"
+    "Description to score:\n---\n{description}\n---\n\n"
+    "Output ONLY a single integer 0-10. No explanation."
+)
+
+
 def score_instruction_quality(instruction: str, eval_data: list[dict]) -> float:
-    """Score a SKILL.md instruction section by testing if Claude follows it well.
+    """Score a SKILL.md instruction by the quality of descriptions written under it.
 
-    Gives Claude the instruction + a mock task, checks output against key criteria.
+    For each mock task: generate a description using the instruction, then have
+    Claude judge that description 0-10. Final score = mean across tasks, in [0, 1].
+    LLM judge over hardcoded keywords: optimizes for general description quality,
+    not for a fixed keyword checklist. `eval_data` unused (signature parity with
+    other scorers for `_score_once` routing).
     """
-    result = call_claude(
-        "You are writing a skill trigger description following these rules:\n\n"
-        f"{instruction}\n\n"
-        "Task: write a trigger description for a skill that handles 'database migration "
-        "with schema backup, migration script execution, data validation, and seed update'.\n\n"
-        "Output ONLY the description text, nothing else."
-    )
-    if not result:
-        return 0.0
+    del eval_data
 
-    # Scoring weights: 6 criteria totaling 1.0 max
-    #   0.15: produced output
-    #   0.20: length within limit (250 chars)
-    #   0.15: mentions domain keywords (schema/migration/backup/validation)
-    #   0.15: has pushy coverage phrases (even if/even when)
-    #   0.15: has exclusion phrases (do not/not use)
-    #   0.10: avoids vague verbs (manage/handle/work with/deal with)
-    #   0.10: domain keyword in first 50 chars (specificity bonus)
-    lower = result.lower()
-    score = 0.15
-    if len(result) <= 250:
-        score += 0.20
-    if any(w in lower for w in ("schema", "migration", "backup", "validation")):
-        score += 0.15
-    if "even if" in lower or "even when" in lower:
-        score += 0.15
-    if "do not" in lower or "not use" in lower:
-        score += 0.15
-    if not any(w in lower for w in ("manage", "handle", "work with", "deal with")):
-        score += 0.10
-    if any(w in lower[:50] for w in ("migrat", "schema", "database", "deploy")):
-        score += 0.10
-    return score
+    def _score_task(task: str) -> float:
+        description = call_claude(
+            "You are writing a skill trigger description following these rules:\n\n"
+            f"{instruction}\n\n"
+            f"Task: write a trigger description for a skill that handles '{task}'.\n\n"
+            "Output ONLY the description text, nothing else."
+        )
+        if not description:
+            return 0.0
+        verdict = call_claude(_JUDGE_PROMPT.format(description=description))
+        match = re.search(r"\d+", verdict)
+        if not match:
+            return 0.0
+        raw = int(match.group())
+        return max(0.0, min(raw, 10)) / 10.0
+
+    results = _run_parallel(_score_task, _INSTRUCTION_MOCK_TASKS)
+    return sum(results) / len(results) if results else 0.0
 
 
 def _score_once(name: str, value: str, metric_type: str, eval_data: list[dict]) -> float:

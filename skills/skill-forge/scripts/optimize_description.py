@@ -52,14 +52,13 @@ IMPROVE_FN_GUIDANCE = (
 )
 
 IMPROVE_FP_GUIDANCE = (
-    "Fix: these queries triggered the skill but should not have. Identify what made "
-    "the description too broad. Strategies:\n"
-    "- Add a 'Do NOT use when' clause listing the specific tasks that were false positives "
-    "(e.g., 'Do NOT use for simple file reads, single-step edits, or code explanations').\n"
-    "- Replace vague verbs ('manage', 'handle', 'work with') with precise multi-step "
-    "scenarios that only match when the full workflow is needed.\n"
-    "- If the FP queries share a keyword with the description, qualify that keyword "
-    "with a condition (e.g., 'deploy' → 'deploy with rollback and health checks')."
+    "Input: skill description that generated false positives.\nOutput: revised "
+    "description with narrowed trigger scope.\n\nTransform rules — apply all that "
+    "match:\n1. APPEND clause: \"Do NOT use when: <enumerate FP task types "
+    "verbatim>\".\n2. REPLACE each vague verb (manage | handle | work with) with a "
+    "multi-step scenario that requires the full workflow to be present.\n3. IF a keyword "
+    "appears in both the FP queries and the description: qualify it with a condition "
+    "(e.g., \"deploy\" → \"deploy with rollback and health checks\")."
 )
 
 

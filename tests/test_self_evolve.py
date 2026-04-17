@@ -198,6 +198,26 @@ class TestScoreEvaluatorPrompt:
         """no eval data -> 0.0."""
         assert score_evaluator_prompt("t {description} {query}", []) == 0.0
 
+    @patch("self_evolve.call_claude")
+    def test_per_case_description(self, mock_claude: object) -> None:
+        """Each case's own `description` field is passed to the template, not a fixed mock."""
+        seen_descriptions: list[str] = []
+
+        def _answer(prompt: str) -> str:
+            for line in prompt.splitlines():
+                if "desc=" in line:
+                    seen_descriptions.append(line.split("desc=", 1)[1])
+            return "YES"
+
+        mock_claude.side_effect = _answer
+        data = [
+            {"description": "Deploy skill", "query": "q1", "should_trigger": True},
+            {"description": "Migration skill", "query": "q2", "should_trigger": True},
+        ]
+        score_evaluator_prompt("desc={description}\nquery={query}", data)
+        assert "Deploy skill" in seen_descriptions
+        assert "Migration skill" in seen_descriptions
+
 
 # ── TestScoreGuidancePrompt ─────────────────────────
 
@@ -247,30 +267,43 @@ class TestScoreGuidancePrompt:
 
 
 class TestScoreInstructionQuality:
-    """SKILL.md instruction section scoring."""
+    """SKILL.md instruction section scoring via LLM judge."""
 
     @patch("self_evolve.call_claude")
     def test_good_instruction_output(self, mock_claude: object) -> None:
-        """instruction produces compliant description -> high score."""
-        mock_claude.return_value = (
-            "Use when running database migration with schema backup, script execution, "
-            "and data validation. Even if user says 'update the DB'. "
-            "Do not use for simple queries."
-        )
+        """LLM judge returns high score across tasks -> high final score."""
+        def _answer(prompt: str) -> str:
+            if prompt.startswith("Score a skill trigger description"):
+                return "9"
+            return "Generated multi-step skill description."
+        mock_claude.side_effect = _answer
         assert score_instruction_quality("Rules here", _make_eval_data()) >= 0.7
 
     @patch("self_evolve.call_claude")
     def test_empty_output(self, mock_claude: object) -> None:
-        """empty response -> 0.0."""
+        """empty description from every task -> 0.0 (judge never runs)."""
         mock_claude.return_value = ""
         assert score_instruction_quality("Rules", _make_eval_data()) == 0.0
 
     @patch("self_evolve.call_claude")
-    def test_vague_output_penalized(self, mock_claude: object) -> None:
-        """output with vague verbs scores lower."""
-        mock_claude.return_value = "Handle database management tasks"
-        score = score_instruction_quality("Rules", _make_eval_data())
-        assert score < 0.5
+    def test_low_judge_score(self, mock_claude: object) -> None:
+        """LLM judge returns low score -> final score stays low."""
+        def _answer(prompt: str) -> str:
+            if prompt.startswith("Score a skill trigger description"):
+                return "2"
+            return "vague generated text"
+        mock_claude.side_effect = _answer
+        assert score_instruction_quality("Rules", _make_eval_data()) < 0.5
+
+    @patch("self_evolve.call_claude")
+    def test_unparseable_judge_output(self, mock_claude: object) -> None:
+        """Judge verdict without digits -> that task scores 0 (no crash)."""
+        def _answer(prompt: str) -> str:
+            if prompt.startswith("Score a skill trigger description"):
+                return "excellent but no number here"
+            return "ok description"
+        mock_claude.side_effect = _answer
+        assert score_instruction_quality("Rules", _make_eval_data()) == 0.0
 
 
 # ── TestScorePrompt ─────────────────────────────────
@@ -642,3 +675,23 @@ class TestRateLimiter:
         assert result == "OK"
         mock_throttle.assert_called_once()
         mock_raw.assert_called_once_with("hello")
+
+    @patch("self_evolve._raw_call_claude")
+    def test_call_claude_retries_on_empty(self, mock_raw: object) -> None:
+        """Empty primary response triggers a throttled retry before giving up."""
+        mock_raw.side_effect = ["", "recovered"]
+        with patch("self_evolve._throttle") as mock_throttle:
+            result = self_evolve.call_claude("hello")
+        assert result == "recovered"
+        assert mock_throttle.call_count == 2
+        assert mock_raw.call_count == 2
+
+    @patch("self_evolve._raw_call_claude")
+    def test_call_claude_exhausts_retries(self, mock_raw: object) -> None:
+        """After all attempts return empty, wrapper returns '' — does not raise."""
+        mock_raw.return_value = ""
+        with patch("self_evolve._throttle") as mock_throttle:
+            result = self_evolve.call_claude("hello")
+        assert result == ""
+        assert mock_throttle.call_count == self_evolve._CALL_CLAUDE_MAX_ATTEMPTS
+        assert mock_raw.call_count == self_evolve._CALL_CLAUDE_MAX_ATTEMPTS
