@@ -335,9 +335,10 @@ describe("embed constants", () => {
 });
 
 describe("embedCommandName", () => {
-  it("prefixes source filename with plugin name", () => {
+  it("prefixes source filename with plugin name using dash separator", () => {
     for (const file of EMBED_COMMANDS) {
-      expect(embedCommandName(file)).toBe(`${PLUGIN_NAME}:${file}`);
+      expect(embedCommandName(file)).toBe(`${PLUGIN_NAME}-${file}`);
+      expect(embedCommandName(file)).not.toContain(":");
     }
   });
 });

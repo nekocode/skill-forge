@@ -392,20 +392,6 @@ describe("removeEmbedFiles", () => {
     expect(fs.existsSync(path.join(commandsDir, "my-command.md"))).toBe(true);
   });
 
-  it("removes legacy unprefixed command files on uninstall", () => {
-    const commandsDir = path.join(tmpDir, ".claude", "commands");
-    fs.mkdirSync(commandsDir, { recursive: true });
-    for (const file of EMBED_COMMANDS) {
-      fs.writeFileSync(path.join(commandsDir, file), "legacy");
-    }
-
-    removeEmbedFiles(tmpDir);
-
-    for (const file of EMBED_COMMANDS) {
-      expect(fs.existsSync(path.join(commandsDir, file))).toBe(false);
-    }
-  });
-
   it("removes .claude/skills/skill-forge/ directory", () => {
     setupFullEmbed(tmpDir);
     removeEmbedFiles(tmpDir);
@@ -706,23 +692,18 @@ describe("embedInstall", () => {
     expect(settings.hooks).toBeDefined();
   });
 
-  it("removes legacy unprefixed command files during install", () => {
-    // Pre-create old-style bare command files (pre-prefix era)
-    const commandsDir = path.join(tmpDir, ".claude", "commands");
-    fs.mkdirSync(commandsDir, { recursive: true });
-    fs.writeFileSync(path.join(commandsDir, "scan.md"), "old");
-    fs.writeFileSync(path.join(commandsDir, "create.md"), "old");
-    fs.writeFileSync(path.join(commandsDir, "improve.md"), "old");
-
+  it("installed command name uses dash separator, not colon", () => {
     makeMockExec();
     embedInstall(tmpDir);
 
-    // Legacy bare files removed
-    expect(fs.existsSync(path.join(commandsDir, "scan.md"))).toBe(false);
-    expect(fs.existsSync(path.join(commandsDir, "create.md"))).toBe(false);
-    expect(fs.existsSync(path.join(commandsDir, "improve.md"))).toBe(false);
-    // Prefixed files installed
-    expect(fs.existsSync(path.join(commandsDir, embedCommandName("scan.md")))).toBe(true);
+    const commandsDir = path.join(tmpDir, ".claude", "commands");
+    for (const file of EMBED_COMMANDS) {
+      const installed = embedCommandName(file);
+      expect(installed).toContain("-");
+      expect(installed).not.toContain(":");
+      if (file === "rename.md") continue; // fake extract omits rename
+      expect(fs.existsSync(path.join(commandsDir, installed))).toBe(true);
+    }
   });
 
   it("cleans up temp dir on tar failure", () => {

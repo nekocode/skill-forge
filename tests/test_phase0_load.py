@@ -9,6 +9,7 @@ from unittest.mock import patch
 import pytest
 
 from phase0_load import (
+    detect_install,
     load_draft_head,
     load_registry_summary,
     load_skills_list,
@@ -175,6 +176,106 @@ class TestLoadRegistrySummary:
         registry_file.write_text(json.dumps({"version": "1", "skills": []}))
         result = load_registry_summary(tmp_path)
         assert "no skills" in result.lower() or result == ""
+
+
+# ── TestDetectInstall ──────────────────────────────────
+
+
+class TestDetectInstall:
+    """Install-mode + version detection."""
+
+    def test_plugin_mode_reads_manifest(self, tmp_path: Path) -> None:
+        """CLAUDE_PLUGIN_ROOT set -> read plugin.json from that root."""
+        plugin_root = tmp_path / "plugin"
+        (plugin_root / ".claude-plugin").mkdir(parents=True)
+        (plugin_root / ".claude-plugin" / "plugin.json").write_text(
+            json.dumps({"name": "skill-forge", "version": "0.9.9"})
+        )
+        result = detect_install(tmp_path, plugin_root=str(plugin_root), cache_dir=tmp_path / "missing")
+        assert "0.9.9" in result
+        assert "[plugin]" in result
+
+    def test_plugin_mode_missing_manifest(self, tmp_path: Path) -> None:
+        """CLAUDE_PLUGIN_ROOT set but manifest gone -> 'unknown'."""
+        plugin_root = tmp_path / "plugin"
+        plugin_root.mkdir()
+        result = detect_install(tmp_path, plugin_root=str(plugin_root), cache_dir=tmp_path / "missing")
+        assert "unknown" in result
+        assert "[plugin]" in result
+
+    def test_embed_mode_reads_version_json(self, tmp_path: Path) -> None:
+        """No plugin root, version.json present -> embed mode."""
+        version_file = tmp_path / ".claude" / "hooks" / "skill-forge" / "version.json"
+        version_file.parent.mkdir(parents=True)
+        version_file.write_text(
+            json.dumps({"version": "0.7.2", "installed": "2026-04-18T10:00:00Z"})
+        )
+        result = detect_install(tmp_path, plugin_root=None, cache_dir=tmp_path / "missing")
+        assert "0.7.2" in result
+        assert "[embed" in result
+
+    def test_dev_mode_walks_up_for_manifest(self, tmp_path: Path) -> None:
+        """No plugin root, no embed version — walk up to find plugin.json."""
+        repo = tmp_path / "repo"
+        (repo / ".claude-plugin").mkdir(parents=True)
+        (repo / ".claude-plugin" / "plugin.json").write_text(
+            json.dumps({"version": "1.0.0"})
+        )
+        nested = repo / "sub" / "deep"
+        nested.mkdir(parents=True)
+        result = detect_install(nested, plugin_root=None, cache_dir=tmp_path / "missing")
+        assert "1.0.0" in result
+        assert "[dev" in result
+
+    def test_stale_cache_warning_on_multiple_versions(self, tmp_path: Path) -> None:
+        """Multiple plugin cache version dirs -> emit warning."""
+        cache = tmp_path / "cache"
+        (cache / "0.2.0").mkdir(parents=True)
+        (cache / "0.7.2").mkdir()
+        plugin_root = tmp_path / "plugin"
+        (plugin_root / ".claude-plugin").mkdir(parents=True)
+        (plugin_root / ".claude-plugin" / "plugin.json").write_text(
+            json.dumps({"version": "0.7.2"})
+        )
+        result = detect_install(tmp_path, plugin_root=str(plugin_root), cache_dir=cache)
+        assert "WARNING" in result
+        assert "0.2.0" in result
+        assert "0.7.2" in result
+
+    def test_no_warning_for_single_cache_version_in_plugin_mode(self, tmp_path: Path) -> None:
+        """Plugin mode + one cache version dir -> no warning (that's the happy path)."""
+        cache = tmp_path / "cache"
+        (cache / "0.7.2").mkdir(parents=True)
+        plugin_root = tmp_path / "plugin"
+        (plugin_root / ".claude-plugin").mkdir(parents=True)
+        (plugin_root / ".claude-plugin" / "plugin.json").write_text(
+            json.dumps({"version": "0.7.2"})
+        )
+        result = detect_install(tmp_path, plugin_root=str(plugin_root), cache_dir=cache)
+        assert "WARNING" not in result
+
+    def test_embed_mode_warns_on_any_plugin_cache(self, tmp_path: Path) -> None:
+        """Embed install + residual plugin cache -> warn, because Claude's
+        bash-fallback skill lookup can still hit the cache and ghost-load."""
+        cache = tmp_path / "cache"
+        (cache / "0.2.0").mkdir(parents=True)
+        version_file = tmp_path / ".claude" / "hooks" / "skill-forge" / "version.json"
+        version_file.parent.mkdir(parents=True)
+        version_file.write_text(json.dumps({"version": "0.7.2", "installed": "t"}))
+        result = detect_install(tmp_path, plugin_root=None, cache_dir=cache)
+        assert "WARNING" in result
+        assert "marketplace plugin cache" in result
+
+    def test_nothing_detected_returns_empty(self, tmp_path: Path) -> None:
+        """No plugin root, no embed, no ancestor manifest -> empty string.
+
+        tmp_path on macOS/Linux lives under /private/var/... or /tmp and its
+        ancestors never contain .claude-plugin/, so the walk-up yields nothing.
+        """
+        isolated = tmp_path / "iso"
+        isolated.mkdir()
+        result = detect_install(isolated, plugin_root=None, cache_dir=tmp_path / "missing")
+        assert result == ""
 
 
 # ── TestMain ───────────────────────────────────────────

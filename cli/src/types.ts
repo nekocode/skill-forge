@@ -38,9 +38,13 @@ export const EMBED_HOOKS_DIR = ".claude/hooks/skill-forge";
 export const EMBED_COMMANDS = ["scan.md", "create.md", "improve.md", "rename.md"];
 
 // Prefix applied to command filenames during embed install so they appear
-// as /skill-forge:scan instead of bare /scan in project scope.
+// as /skill-forge-scan instead of bare /scan in project scope.
+// Uses '-' not ':' — ':' is Claude Code's plugin namespace separator. A name
+// like `skill-forge:scan` makes Claude route Skill() calls through plugin
+// resolution (skipping project/user scope) and load the plugin cache version
+// instead of the embedded one.
 export function embedCommandName(sourceFile: string): string {
-  return `${PLUGIN_NAME}:${sourceFile}`;
+  return `${PLUGIN_NAME}-${sourceFile}`;
 }
 
 // ── Path helpers ────────────────────────────────────────────────────────

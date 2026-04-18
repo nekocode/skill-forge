@@ -149,9 +149,7 @@ export function detectEmbedInstall(projectRoot: string): boolean {
 export function removeEmbedFiles(projectRoot: string): void {
   const commandsDir = path.join(projectRoot, ".claude", "commands");
   for (const file of EMBED_COMMANDS) {
-    // Both prefixed (current) and bare (legacy) forms
     fs.rmSync(path.join(commandsDir, embedCommandName(file)), { force: true });
-    fs.rmSync(path.join(commandsDir, file), { force: true });
   }
 
   // Remove SF skills dir
@@ -266,10 +264,6 @@ export function embedInstall(projectRoot: string, tag?: string): string {
     const srcCommandsDir = path.join(extractRoot, "commands");
     const destCommandsDir = path.join(projectRoot, ".claude", "commands");
     fs.mkdirSync(destCommandsDir, { recursive: true });
-    // Drop legacy bare command files regardless of tarball contents
-    for (const file of EMBED_COMMANDS) {
-      fs.rmSync(path.join(destCommandsDir, file), { force: true });
-    }
     if (fs.existsSync(srcCommandsDir)) {
       for (const file of EMBED_COMMANDS) {
         const src = path.join(srcCommandsDir, file);
