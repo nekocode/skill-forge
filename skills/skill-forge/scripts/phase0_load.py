@@ -44,9 +44,10 @@ def run_catchup(project_dir: Path) -> str:
 def load_skills_list(project_dir: Path) -> str:
     """List subdirectory names under .claude/skills/.
 
-    SKILL.md presence is the skill anchor — filters out `.workspace/`,
-    per-skill `-workspace/` helpers, and stray dirs without a manifest.
-    Directory not found returns empty string.
+    SKILL.md presence is the skill anchor — filters out per-skill
+    `-workspace/` helpers and stray dirs without a manifest (e.g. a
+    `skill-forge/` left behind in plugin-mode where only `.workspace/`
+    lives inside). Directory not found returns empty string.
     """
     skills_dir = project_dir / SKILLS_DIR
     if not skills_dir.is_dir():

@@ -18,10 +18,12 @@ STATE_FILE = Path(".claude/skill_forge_state.json")
 SKILLS_DIR = Path(".claude/skills")
 REGISTRY_FILE = SKILLS_DIR / "skill_registry.json"
 
-# Workspace lives under SKILLS_DIR so Claude Code's .claude/ trust-boundary
-# exemption for .claude/skills/** applies — Write/Edit here don't prompt even
-# in bypassPermissions. Dot-prefix keeps it out of skill enumeration.
-WORKSPACE_DIR = SKILLS_DIR / ".workspace"
+# Workspace nests INSIDE the skill-forge skill dir so Claude Code's .claude/
+# trust-boundary exemption applies — sibling dot-dirs like `.claude/skills/.workspace/`
+# are still prompted because the exemption only recurses into real skill dirs
+# (same rule that makes `<skill>/.opt/` prompt-free). Write/Edit under this
+# path are silent even in bypassPermissions.
+WORKSPACE_DIR = SKILLS_DIR / "skill-forge" / ".workspace"
 DRAFT_FILE = WORKSPACE_DIR / "draft.md"
 
 # ── threshold constants ──────────────────────────────────

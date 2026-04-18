@@ -12,7 +12,7 @@ Rename a skill. `$ARGUMENTS` is `<old-name> <new-name>`.
 
 3. **Validate.** `old-name` must exist in registry. `new-name` must NOT exist. `old-name` must differ from `new-name`.
 
-4. **Abort if active draft references old name.** Check `.claude/skills/.workspace/draft.md` — if it exists and references `old-name`, warn user and abort (finish the improve/create session first).
+4. **Abort if active draft references old name.** Check `.claude/skills/skill-forge/.workspace/draft.md` — if it exists and references `old-name`, warn user and abort (finish the improve/create session first).
 
 5. **Scan all files for old name references.** Read and list every occurrence:
    - `.claude/skills/<old-name>/SKILL.md` — frontmatter `name:`, headings, body text, script path references

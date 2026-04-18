@@ -1,6 +1,6 @@
 """Create mode draft initializer.
 
-Generate the active draft file (under SKILLS_DIR/.workspace/) from name and goal,
+Generate the active draft file (under SKILLS_DIR/skill-forge/.workspace/) from name and goal,
 serving as the attention anchor file for hooks.
 """
 

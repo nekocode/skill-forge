@@ -103,7 +103,7 @@ class TestScanSession:
             {"type": "user", "message": "hello"},
             {"type": "assistant", "message": {"content": [
                 {"type": "tool_use", "name": "Write", "input": {
-                    "file_path": "/proj/.claude/skills/.workspace/draft.md",
+                    "file_path": "/proj/.claude/skills/skill-forge/.workspace/draft.md",
                 }},
             ]}},
         ])

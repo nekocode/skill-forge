@@ -115,20 +115,21 @@ class TestLoadSkillsList:
     def test_filters_non_skill_dirs(self, tmp_path: Path) -> None:
         """Only dirs containing SKILL.md count as skills.
 
-        Filters out `.workspace/`, per-skill `-workspace/` helpers, and stray
-        dirs without a manifest.
+        Filters out per-skill `-workspace/` helpers and stray dirs without a
+        manifest — including a plugin-mode `skill-forge/` that only holds
+        `.workspace/` without a SKILL.md.
         """
         skills_dir = tmp_path / ".claude" / "skills"
         (skills_dir / "real-skill").mkdir(parents=True)
         (skills_dir / "real-skill" / "SKILL.md").write_text("# s\n")
-        (skills_dir / ".workspace").mkdir()
-        (skills_dir / ".workspace" / "draft.md").write_text("draft")
+        (skills_dir / "skill-forge" / ".workspace").mkdir(parents=True)
+        (skills_dir / "skill-forge" / ".workspace" / "draft.md").write_text("draft")
         (skills_dir / "real-skill-workspace").mkdir()
         (skills_dir / "empty-dir").mkdir()
 
         result = load_skills_list(tmp_path)
         assert "real-skill" in result
-        assert ".workspace" not in result
+        assert "skill-forge" not in result
         assert "real-skill-workspace" not in result
         assert "empty-dir" not in result
 
