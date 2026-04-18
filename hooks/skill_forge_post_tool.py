@@ -21,6 +21,7 @@ from _bootstrap import resolve_scripts_path  # noqa: E402
 sys.path.insert(0, resolve_scripts_path())
 from shared import (  # noqa: E402
     FILE_WRITE_TOOLS,
+    PENDING_EVAL_SCORE_KEY,
     load_registry,
     load_state,
     parse_frontmatter,
@@ -34,8 +35,12 @@ REQUIRED_FRONTMATTER = {"name", "description"}
 # ── Registry helpers ─────────────────────────────────────────────────────────
 
 
-def upsert_skill(registry: dict, fm: dict, scope: str):
-    """Register or update a skill. name/description derived from fm to reduce param redundancy."""
+def upsert_skill(registry: dict, fm: dict, scope: str, eval_score: int | None = None):
+    """Register or update a skill. name/description derived from fm to reduce param redundancy.
+
+    eval_score: session evaluator score (0..8). None preserves existing on update,
+    defaults to 0 on insert. Hook passes the consumed pending_eval_score from state.json.
+    """
     name = fm["name"]
     desc_chars = len(fm.get("description", ""))
     today = date.today().isoformat()
@@ -46,12 +51,16 @@ def upsert_skill(registry: dict, fm: dict, scope: str):
             entry.update({"updated": today, "description_chars": desc_chars,
                           "version": bump_version(entry.get("version", "1.0.0")),
                           "auto_trigger": auto_trigger})
+            if eval_score is not None:
+                entry["eval_score"] = eval_score
             return
     registry["skills"].append({
         "name": name, "version": "1.0.0", "scope": scope,
         "created": today, "updated": today,
         "auto_trigger": auto_trigger,
-        "description_chars": desc_chars, "eval_score": 0, "usage_count": 0,
+        "description_chars": desc_chars,
+        "eval_score": eval_score if eval_score is not None else 0,
+        "usage_count": 0,
     })
 
 
@@ -105,34 +114,36 @@ def main():
 
     state = load_state()
     state["tool_calls"] = state.get("tool_calls", 0) + 1
-    save_state(state)
+
+    response: dict = {}
 
     # file_path compat: Write/Edit use file_path, fall back to path
     file_path = tool_input.get("file_path", "") or tool_input.get("path", "")
     if Path(file_path).name == "SKILL.md" and tool_name in FILE_WRITE_TOOLS:
         skill_path = Path(file_path)
         try:
-            content = skill_path.read_text()
+            content: str | None = skill_path.read_text()
         except OSError:
-            print(json.dumps({}))
-            return
+            content = None
 
-        fm = parse_frontmatter(content)
-        warnings = validate_skill(content, fm=fm)
+        if content is not None:
+            fm = parse_frontmatter(content)
+            warnings = validate_skill(content, fm=fm)
 
-        if fm and fm.get("name"):
-            scope = "project" if ".claude" in skill_path.parts else "personal"
-            registry = load_registry()
-            upsert_skill(registry, fm, scope)
-            save_registry(registry)
+            if fm and fm.get("name"):
+                scope = "project" if ".claude" in skill_path.parts else "personal"
+                registry = load_registry()
+                # Pop so the next unrelated SKILL.md write doesn't inherit a stale score.
+                pending_score = state.pop(PENDING_EVAL_SCORE_KEY, None)
+                upsert_skill(registry, fm, scope, eval_score=pending_score)
+                save_registry(registry)
 
-        if warnings:
-            warn_text = "skill-forge registry updated. Validation notes:\n" + \
-                        "\n".join(f"  - {w}" for w in warnings)
-            print(json.dumps({"systemMessage": warn_text}))
-            return
+            if warnings:
+                response["systemMessage"] = "skill-forge registry updated. Validation notes:\n" + \
+                    "\n".join(f"  - {w}" for w in warnings)
 
-    print(json.dumps({}))
+    save_state(state)
+    print(json.dumps(response))
 
 
 if __name__ == "__main__":

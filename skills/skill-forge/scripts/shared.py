@@ -98,6 +98,10 @@ DEFAULT_STATE: dict = {
     "compacted": False,
 }
 
+# Bridge key between `record_eval_score.py` (writer) and `skill_forge_post_tool.py` (consumer).
+# Renaming in one module without the other silently breaks score propagation (stays 0/8).
+PENDING_EVAL_SCORE_KEY = "pending_eval_score"
+
 
 # ── State I/O ───────────────────────────────────────────
 

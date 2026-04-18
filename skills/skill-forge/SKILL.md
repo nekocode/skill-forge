@@ -220,6 +220,12 @@ Fewer starting errors = fewer optimizer rounds to converge.
 See **Skill evaluator** section. Write to disk only on pass ≥ 6.
 
 ### Step 5: on approval
+- Record the score so the registry picks it up (the PostToolUse hook reads it
+  on the next SKILL.md write — without this the registry stores `0/8` even
+  when the session scored higher):
+  ```bash
+  python3 "${CLAUDE_PLUGIN_ROOT}/skills/skill-forge/scripts/record_eval_score.py" <score>
+  ```
 - Write to `.claude/skills/<n>/SKILL.md` — this triggers the PostToolUse hook
   which auto-upserts the registry; do NOT Write `skill_registry.json` manually
   (that path sits outside any skill dir and prompts even in bypassPermissions).
@@ -300,6 +306,12 @@ helper code, that code belongs in `scripts/` — write once, reference in SKILL.
 
 ### Step 4: finalize
 
+- Re-run the evaluator on the patched draft, then record the score so the
+  registry update reflects the new quality (without this it sticks at the
+  previous score, or `0/8` if never recorded):
+  ```bash
+  python3 "${CLAUDE_PLUGIN_ROOT}/skills/skill-forge/scripts/record_eval_score.py" <score>
+  ```
 - Apply changes with `Edit` on `.claude/skills/<n>/SKILL.md` — the PostToolUse
   hook auto-upserts the registry; do NOT Write `skill_registry.json` manually
   (outside any skill dir, prompts even in bypassPermissions).

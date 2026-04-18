@@ -127,6 +127,31 @@ class TestUpsertSkill:
         assert entry["eval_score"] == 0
         assert entry["usage_count"] == 0
 
+    def test_new_skill_with_eval_score(self) -> None:
+        """eval_score passed -> persisted on insert."""
+        registry = _make_registry()
+        fm = {"name": "scored", "description": "Use when X" * 5}
+        upsert_skill(registry, fm, "project", eval_score=6)
+        assert registry["skills"][0]["eval_score"] == 6
+
+    def test_existing_skill_eval_score_updated(self) -> None:
+        """eval_score passed on update -> overwrites previous score."""
+        existing = _existing_entry("my-skill", "1.0.0")
+        existing["eval_score"] = 4
+        registry = _make_registry(existing)
+        fm = {"name": "my-skill", "description": "x" * 30}
+        upsert_skill(registry, fm, "project", eval_score=7)
+        assert registry["skills"][0]["eval_score"] == 7
+
+    def test_existing_skill_eval_score_preserved_when_none(self) -> None:
+        """eval_score=None on update -> previous score preserved (not zeroed)."""
+        existing = _existing_entry("my-skill", "1.0.0")
+        existing["eval_score"] = 5
+        registry = _make_registry(existing)
+        fm = {"name": "my-skill", "description": "x" * 30}
+        upsert_skill(registry, fm, "project", eval_score=None)
+        assert registry["skills"][0]["eval_score"] == 5
+
     def test_new_skill_not_invocable(self) -> None:
         """user-invocable=false -> auto_trigger=False."""
         registry = _make_registry()
@@ -670,6 +695,80 @@ description: Use when testing nameless skills
         assert out == {}
         registry = json.loads(registry_file.read_text())
         assert len(registry["skills"]) == 1
+
+    # ── pending_eval_score consume + clear ──
+
+    def test_pending_eval_score_consumed(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture,
+        tmp_path: Path,
+    ) -> None:
+        """state.pending_eval_score -> written to registry, cleared from state."""
+        _, state, registry = self._run_main(
+            monkeypatch,
+            capsys,
+            tmp_path,
+            {"tool_name": "Write", "tool_input": {}},
+            skill_content=VALID_FRONTMATTER,
+            state_init={"tool_calls": 0, "pending_eval_score": 6},
+        )
+        assert registry["skills"][0]["eval_score"] == 6
+        assert "pending_eval_score" not in state
+
+    def test_pending_eval_score_consumed_on_update(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture,
+        tmp_path: Path,
+    ) -> None:
+        """existing skill + pending score -> score updated, pending cleared."""
+        _, state, registry = self._run_main(
+            monkeypatch,
+            capsys,
+            tmp_path,
+            {"tool_name": "Edit", "tool_input": {}},
+            skill_content=VALID_FRONTMATTER,
+            registry_init=_make_registry(_existing_entry("my-skill", "1.0.5")),
+            state_init={"tool_calls": 3, "pending_eval_score": 8},
+        )
+        assert registry["skills"][0]["eval_score"] == 8
+        assert "pending_eval_score" not in state
+
+    def test_no_pending_score_default_zero_on_insert(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture,
+        tmp_path: Path,
+    ) -> None:
+        """no pending score -> insert with eval_score=0 (back-compat)."""
+        _, _, registry = self._run_main(
+            monkeypatch,
+            capsys,
+            tmp_path,
+            {"tool_name": "Write", "tool_input": {}},
+            skill_content=VALID_FRONTMATTER,
+        )
+        assert registry["skills"][0]["eval_score"] == 0
+
+    def test_no_pending_score_preserves_existing(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture,
+        tmp_path: Path,
+    ) -> None:
+        """no pending + existing entry with score -> score preserved on update."""
+        existing = _existing_entry("my-skill", "1.0.0")
+        existing["eval_score"] = 7
+        _, _, registry = self._run_main(
+            monkeypatch,
+            capsys,
+            tmp_path,
+            {"tool_name": "Edit", "tool_input": {}},
+            skill_content=VALID_FRONTMATTER,
+            registry_init=_make_registry(existing),
+        )
+        assert registry["skills"][0]["eval_score"] == 7
 
     # ── MultiEdit tool -> also triggers ──
 
