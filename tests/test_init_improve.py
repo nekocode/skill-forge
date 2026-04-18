@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from init_improve import init_improve_session, main
-from shared import DRAFT_FILE
+from shared import draft_file
 
 
 # ── TestInitImproveSession ─────────────────────────────
@@ -22,7 +22,7 @@ class TestInitImproveSession:
 
         init_improve_session("my-skill", project_dir=tmp_path)
 
-        draft = tmp_path / DRAFT_FILE
+        draft = draft_file(tmp_path)
         assert draft.exists()
         content = draft.read_text()
         assert "name: my-skill" in content
@@ -35,14 +35,14 @@ class TestInitImproveSession:
 
         init_improve_session("my-skill", project_dir=tmp_path)
 
-        content = (tmp_path / DRAFT_FILE).read_text()
+        content = draft_file(tmp_path).read_text()
         assert "## Improve session" in content
 
     def test_skill_not_found(self, tmp_path: Path) -> None:
         """skill dir missing -> return False."""
         result = init_improve_session("nonexistent", project_dir=tmp_path)
         assert result is False
-        assert not (tmp_path / DRAFT_FILE).exists()
+        assert not draft_file(tmp_path).exists()
 
     def test_creates_claude_dir(self, tmp_path: Path) -> None:
         """creates even if .claude/ does not exist."""
@@ -51,7 +51,7 @@ class TestInitImproveSession:
         (skill_dir / "SKILL.md").write_text("content\n")
 
         init_improve_session("test", project_dir=tmp_path)
-        assert (tmp_path / DRAFT_FILE).exists()
+        assert draft_file(tmp_path).exists()
 
 
 # ── TestMain ───────────────────────────────────────────

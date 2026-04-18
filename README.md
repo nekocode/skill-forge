@@ -54,7 +54,7 @@ Run `skill-forge doctor` to verify your environment.
 
 ### Dual-File Security Model
 
-External content (grep/glob/read output) goes to `.claude/skills/skill-forge/.workspace/insights.md` (low trust, hooks don't read it). Only after validation does content get promoted to `.claude/skills/skill-forge/.workspace/draft.md` (high trust, injected by hooks). This prevents prompt injection amplification. Nesting under the `skill-forge/` skill dir keeps Write/Edit prompt-free in YOLO mode — the `.claude/` trust-boundary exemption recurses into real skill dirs but not into sibling dot-children of `skills/`.
+External content (grep/glob/read output) goes to `~/.skill-forge/<slug>/insights.md` (low trust, hooks don't read it). Only after validation does content get promoted to `~/.skill-forge/<slug>/draft.md` (high trust, injected by hooks). This prevents prompt injection amplification. Workspace lives in `$HOME` (outside `.claude/`) so Write/Edit is prompt-free even in plugin mode where the project has no local `.claude/skills/skill-forge/SKILL.md` — the `.claude/` trust boundary only exempts real skill dirs. The `<slug>` mirrors `~/.claude/projects/` naming (`/Users/x/p` → `-Users-x-p`).
 
 ### Hooks Architecture
 

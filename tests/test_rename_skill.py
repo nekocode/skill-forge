@@ -14,7 +14,7 @@ from rename_skill import (
     render_plan,
     resolve_skills_root,
 )
-from shared import REGISTRY_FILE, SKILLS_DIR, USER_SKILLS_DIR
+from shared import REGISTRY_FILE, SKILLS_DIR, USER_SKILLS_DIR, draft_file
 
 
 # ── Fixtures ──────────────────────────────────────────────
@@ -127,32 +127,12 @@ class TestBuildPlan:
 
     def test_active_draft_guard(self, tmp_path: Path) -> None:
         skills_root, _ = _make_project(tmp_path, "foo")
-        draft = tmp_path / ".claude/skills/skill-forge/.workspace/draft.md"
+        draft = draft_file(tmp_path)
         draft.parent.mkdir(parents=True)
         draft.write_text("# foo — IN PROGRESS\n")
 
         plan = build_plan("foo", "bar", skills_root, tmp_path)
         assert any("active draft" in e for e in plan["errors"])
-
-    def test_legacy_workspace_detected(self, tmp_path: Path) -> None:
-        skills_root, _ = _make_project(tmp_path, "foo")
-        legacy = skills_root / "foo-workspace"
-        legacy.mkdir()
-        (legacy / "trigger_evals.json").write_text('[{"query": "foo", "should_trigger": true}]')
-
-        plan = build_plan("foo", "bar", skills_root, tmp_path)
-        assert plan["errors"] == []
-        assert any("legacy" in w.lower() for w in plan["warnings"])
-        renamed_src = {src for src, _ in plan["dir_renames"]}
-        assert legacy in renamed_src
-
-    def test_legacy_workspace_target_collision(self, tmp_path: Path) -> None:
-        skills_root, _ = _make_project(tmp_path, "foo")
-        (skills_root / "foo-workspace").mkdir()
-        (skills_root / "bar-workspace").mkdir()
-
-        plan = build_plan("foo", "bar", skills_root, tmp_path)
-        assert any("legacy target exists" in e for e in plan["errors"])
 
     def test_binary_file_tolerated(self, tmp_path: Path) -> None:
         """Binary file in scripts/ must not crash scanning."""
@@ -189,20 +169,6 @@ class TestExecutePlan:
         names = [s["name"] for s in registry["skills"]]
         assert "bar" in names
         assert "foo" not in names
-
-    def test_renames_legacy_workspace(self, tmp_path: Path) -> None:
-        skills_root, _ = _make_project(tmp_path, "foo")
-        legacy = skills_root / "foo-workspace"
-        legacy.mkdir()
-        (legacy / "trigger_evals.json").write_text('[{"query": "foo usage"}]')
-
-        plan = build_plan("foo", "bar", skills_root, tmp_path)
-        execute_plan(plan)
-
-        assert (skills_root / "bar-workspace" / "trigger_evals.json").is_file()
-        content = (skills_root / "bar-workspace" / "trigger_evals.json").read_text()
-        assert "bar usage" in content
-
 
 # ── render_plan ───────────────────────────────────────────
 

@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 
 # shared module from same directory
-from shared import DRAFT_FILE, SKILLS_DIR
+from shared import SKILLS_DIR, draft_file
 
 
 def init_improve_session(
@@ -36,7 +36,7 @@ def init_improve_session(
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
     content += f"\n## Improve session — {timestamp}\n"
 
-    draft_path = project_dir / DRAFT_FILE
+    draft_path = draft_file(project_dir)
     draft_path.parent.mkdir(parents=True, exist_ok=True)
     draft_path.write_text(content)
     return True

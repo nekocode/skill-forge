@@ -12,26 +12,35 @@ hooks:
     - hooks:
         - type: command
           command: |
-            if [ -f .claude/skills/skill-forge/.workspace/draft.md ]; then
+            ROOT="${CLAUDE_PROJECT_DIR:-$PWD}"
+            ROOT="${ROOT%/}"
+            WS="$HOME/.skill-forge/$(printf '%s' "$ROOT" | tr '/' '-')"
+            if [ -f "$WS/draft.md" ]; then
               echo '[skill-forge] ACTIVE SKILL DRAFT — current state:'
-              head -40 .claude/skills/skill-forge/.workspace/draft.md
+              head -40 "$WS/draft.md"
               echo ''
-              echo '[skill-forge] Review .claude/skills/skill-forge/.workspace/insights.md for codebase context. Continue from current phase.'
+              echo "[skill-forge] Review $WS/insights.md for codebase context. Continue from current phase."
             fi
 
   PreToolUse:
     - matcher: "Read|Glob|Grep|Bash"
       hooks:
         - type: command
-          command: "head -20 .claude/skills/skill-forge/.workspace/draft.md 2>/dev/null || true"
+          command: |
+            ROOT="${CLAUDE_PROJECT_DIR:-$PWD}"
+            ROOT="${ROOT%/}"
+            head -20 "$HOME/.skill-forge/$(printf '%s' "$ROOT" | tr '/' '-')/draft.md" 2>/dev/null || true
 
   PostToolUse:
     - matcher: "Write|Edit"
       hooks:
         - type: command
           command: |
-            if [ -f .claude/skills/skill-forge/.workspace/draft.md ]; then
-              echo '[skill-forge] Update .claude/skills/skill-forge/.workspace/draft.md with what you just found. If a codebase pattern is confirmed, move it from insights.md into the draft steps.'
+            ROOT="${CLAUDE_PROJECT_DIR:-$PWD}"
+            ROOT="${ROOT%/}"
+            WS="$HOME/.skill-forge/$(printf '%s' "$ROOT" | tr '/' '-')"
+            if [ -f "$WS/draft.md" ]; then
+              echo "[skill-forge] Update $WS/draft.md with what you just found. If a codebase pattern is confirmed, move it from insights.md into the draft steps."
             fi
 
   Stop:
@@ -47,14 +56,18 @@ A meta-skill that creates and evolves other skills. Uses persistent markdown fil
 working memory (the planning-with-files pattern), an eval-driven iteration loop
 (Anthropic's skill-creator pattern).
 
-Both files live under `.claude/skills/skill-forge/.workspace/` — nested inside a
-real skill dir, so the `.claude/` trust-boundary exemption recurses here and
-Write/Edit works without permission prompts even in `bypassPermissions` (YOLO)
-mode. Sibling dot-dirs like `.claude/skills/.workspace/` still prompt — the
-exemption doesn't cover direct dot-children of `skills/`.
+Both files live under `~/.skill-forge/<cwd-slug>/` — outside the `.claude/`
+trust boundary entirely. Claude Code only exempts `.claude/commands/**`,
+`.claude/agents/**`, and real skill dirs (those containing SKILL.md). In
+plugin mode the project has no local `.claude/skills/skill-forge/SKILL.md`,
+so any workspace under `.claude/` still prompts on Write even in
+`bypassPermissions` (YOLO). Putting workspace in `$HOME` sidesteps the
+boundary. Slug convention matches `~/.claude/projects/<slug>/` so the same
+project's workspace is discoverable by path.
 
-- `.claude/skills/skill-forge/.workspace/draft.md` — current skill being written (HIGH TRUST, re-read by hooks)
-- `.claude/skills/skill-forge/.workspace/insights.md` — raw codebase scan output (LOW TRUST, staging only)
+- `~/.skill-forge/<slug>/draft.md` — current skill being written (HIGH TRUST, re-read by hooks)
+- `~/.skill-forge/<slug>/insights.md` — raw codebase scan output (LOW TRUST, staging only)
+- `~/.skill-forge/<slug>/state.json` — per-project counters (tool_calls, compacted)
 
 > Security: grep/glob output and codebase content go to insights.md only.
 > draft.md is injected before every tool call, making it a prompt injection
@@ -101,7 +114,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/skill-forge/scripts/scan_structure.py"
 If a focus prompt is given, prioritize that area during pattern discovery.
 
 ### Step 2: discover patterns (2-scan rule)
-After every 2 file reads, append findings to `.claude/skills/skill-forge/.workspace/insights.md`
+After every 2 file reads, append findings to `~/.skill-forge/<slug>/insights.md`
 via `Write` (not shell heredoc — heredoc shifts each call, Bash allowlist can't
 match, non-bypass mode will prompt). Prevents loss if context fills up.
 
@@ -142,7 +155,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/skill-forge/scripts/init_draft.py" "<deriv
 From here, the PreToolUse hook re-reads this before every tool call.
 
 ### Step 2: gather context → insights.md (not the draft)
-Write grep/glob/read output to `.claude/skills/skill-forge/.workspace/insights.md` first.
+Write grep/glob/read output to `~/.skill-forge/<slug>/insights.md` first.
 Promote confirmed patterns to the draft only after review. This separation
 prevents codebase content from being injected into every subsequent tool call
 via the hook.
@@ -210,7 +223,7 @@ See **Skill evaluator** section. Write to disk only on pass ≥ 6.
 - Write to `.claude/skills/<n>/SKILL.md` — this triggers the PostToolUse hook
   which auto-upserts the registry; do NOT Write `skill_registry.json` manually
   (that path sits outside any skill dir and prompts even in bypassPermissions).
-- Clear `.claude/skills/skill-forge/.workspace/draft.md` by writing an empty
+- Clear `~/.skill-forge/<slug>/draft.md` by writing an empty
   string (Write, not Bash `rm` — the draft path is exempt, `rm` is not).
 - Offer to run **improve mode** to tune the description.
 
@@ -244,7 +257,7 @@ Classify → 3a (content), 3b (triggering), or both (3a first).
 
 ### Step 3a: content improvement (patch-first)
 
-1. Gather codebase evidence → `.claude/skills/skill-forge/.workspace/insights.md` (low trust staging)
+1. Gather codebase evidence → `~/.skill-forge/<slug>/insights.md` (low trust staging)
 2. Promote confirmed patterns to draft
 3. Generate diff, show user, apply with `Edit` (not `Write`)
 4. Run evaluator on post-patch version
@@ -290,7 +303,7 @@ helper code, that code belongs in `scripts/` — write once, reference in SKILL.
 - Apply changes with `Edit` on `.claude/skills/<n>/SKILL.md` — the PostToolUse
   hook auto-upserts the registry; do NOT Write `skill_registry.json` manually
   (outside any skill dir, prompts even in bypassPermissions).
-- Clear `.claude/skills/skill-forge/.workspace/draft.md` by writing an empty
+- Clear `~/.skill-forge/<slug>/draft.md` by writing an empty
   string (Write, not Bash `rm` — draft path exempt, `rm` is not).
 - Append to CHANGELOG.md (in the skill dir, exempt — use Write/Edit, not shell
   heredoc which shifts each call and misses any Bash allowlist):
@@ -350,7 +363,7 @@ skill. Flag and sharpen on next improve.
 
 ## The 3-Strike error protocol
 
-1. Read the failure, apply a targeted change to `.claude/skills/skill-forge/.workspace/draft.md`.
+1. Read the failure, apply a targeted change to `~/.skill-forge/<slug>/draft.md`.
 2. Same failure → different phrasing / metaphor / structure. Never repeat.
 3. Rethink scope — consider splitting into two narrower skills.
 4. After 3 → share failures, ask user for guidance on scope or trigger wording.
@@ -364,8 +377,8 @@ Generalize from failures; don't patch the one failing case. A skill that passes
 
 | File | Trust | Re-read by hooks? | Purpose |
 |------|-------|-------------------|---------|
-| `.claude/skills/skill-forge/.workspace/draft.md` | HIGH | YES (every tool call) | Active skill being written |
-| `.claude/skills/skill-forge/.workspace/insights.md` | LOW | NO | Codebase scan staging |
+| `~/.skill-forge/<slug>/draft.md` | HIGH | YES (every tool call) | Active skill being written |
+| `~/.skill-forge/<slug>/insights.md` | LOW | NO | Codebase scan staging |
 | `.claude/skills/skill_registry.json` | HIGH | NO (loaded on demand) | Version registry |
 | `.claude/skills/<n>/SKILL.md` | HIGH | NO | Final persisted skill |
 | `.claude/skills/<n>/CHANGELOG.md` | MED | NO | Evolution history |

@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 
 # shared module from same directory
-from shared import WORKSPACE_DIR
+from shared import workspace_dir
 
 # default excluded dirs (matching original find command + common additions)
 DEFAULT_EXCLUDES: frozenset[str] = frozenset({
@@ -93,7 +93,7 @@ def main(
     # Claude to shell out `mkdir -p` — that bash call has no stable allowlist
     # match and prompts in non-bypass mode. Scan mode is the only path that
     # skips init_draft/init_improve (which already mkdir the workspace).
-    (project_dir / WORKSPACE_DIR).mkdir(parents=True, exist_ok=True)
+    workspace_dir(project_dir).mkdir(parents=True, exist_ok=True)
 
     result = scan_tree(project_dir, max_depth=max_depth, max_lines=max_lines)
     if result:

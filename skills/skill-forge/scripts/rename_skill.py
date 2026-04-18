@@ -22,10 +22,10 @@ from pathlib import Path
 
 # shared module from same directory
 from shared import (
-    DRAFT_FILE,
     REGISTRY_FILE,
     SKILLS_DIR,
     USER_SKILLS_DIR,
+    draft_file,
     load_registry,
     save_registry,
 )
@@ -113,7 +113,7 @@ def build_plan(
 
     # Active draft guardrail — if mid-session on this skill, renaming mid-flight
     # corrupts the draft's implicit target.
-    draft = project_dir / DRAFT_FILE
+    draft = draft_file(project_dir)
     if draft.is_file() and old_name in draft.read_text():
         errors.append(
             f"active draft {draft} still references {old_name!r}; "
@@ -126,21 +126,6 @@ def build_plan(
     if old_dir.is_dir():
         file_edits.extend(_scan_dir(old_dir, old_name))
         dir_renames.append((old_dir, new_dir))
-
-    # Legacy sibling <old>-workspace/ (pre-R1 trigger_evals.json location).
-    # New skills use <old>/.opt/ inside the skill dir, which renames with it.
-    legacy_workspace = skills_root / f"{old_name}-workspace"
-    if legacy_workspace.is_dir():
-        target_workspace = skills_root / f"{new_name}-workspace"
-        if target_workspace.exists():
-            errors.append(f"legacy target exists: {target_workspace}")
-        else:
-            file_edits.extend(_scan_dir(legacy_workspace, old_name))
-            dir_renames.append((legacy_workspace, target_workspace))
-        warnings.append(
-            f"legacy `{old_name}-workspace/` detected — consider migrating "
-            f"its contents into `{new_name}/.opt/` after rename"
-        )
 
     return {
         "old_name": old_name,

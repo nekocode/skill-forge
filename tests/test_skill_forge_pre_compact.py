@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from shared import state_file
 from skill_forge_pre_compact import main, mark_compacted
 
 
@@ -55,16 +56,14 @@ class TestMain:
     """stdin/stdout integration."""
 
     def test_main_reads_stdin_outputs_empty(
-        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture, tmp_path: Path,
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture,
     ) -> None:
         """main consumes stdin, marks state, outputs empty JSON."""
-        state_file = tmp_path / "state.json"
-        monkeypatch.setattr("skill_forge_pre_compact.STATE_FILE", state_file)
         monkeypatch.setattr("sys.stdin", StringIO("{}"))
         main()
         # stdout: empty JSON
         output = json.loads(capsys.readouterr().out)
         assert output == {}
-        # state file marked
-        result = json.loads(state_file.read_text())
+        # state file under isolated workspace root marked
+        result = json.loads(state_file().read_text())
         assert result["compacted"] is True

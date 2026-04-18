@@ -16,7 +16,7 @@ from phase0_load import (
     main,
     run_catchup,
 )
-from shared import DRAFT_FILE
+from shared import draft_file
 
 DRAFT_CONTENT = """\
 # my-skill — IN PROGRESS
@@ -50,7 +50,7 @@ class TestLoadDraftHead:
 
     def test_existing_draft(self, tmp_path: Path) -> None:
         """draft exists -> return first N lines."""
-        draft = tmp_path / DRAFT_FILE
+        draft = draft_file(tmp_path)
         draft.parent.mkdir(parents=True)
         draft.write_text(DRAFT_CONTENT)
         result = load_draft_head(tmp_path, max_lines=5)
@@ -65,7 +65,7 @@ class TestLoadDraftHead:
 
     def test_default_max_lines(self, tmp_path: Path) -> None:
         """default 20 lines."""
-        draft = tmp_path / DRAFT_FILE
+        draft = draft_file(tmp_path)
         draft.parent.mkdir(parents=True)
         draft.write_text(DRAFT_CONTENT)
         result = load_draft_head(tmp_path)
@@ -116,21 +116,20 @@ class TestLoadSkillsList:
     def test_filters_non_skill_dirs(self, tmp_path: Path) -> None:
         """Only dirs containing SKILL.md count as skills.
 
-        Filters out per-skill `-workspace/` helpers and stray dirs without a
-        manifest — including a plugin-mode `skill-forge/` that only holds
-        `.workspace/` without a SKILL.md.
+        Filters out per-skill `-workspace/` helpers, stray dirs without a
+        manifest, and dot-children of skills/ — nothing under .claude/skills/
+        should be listed unless it has its own SKILL.md.
         """
         skills_dir = tmp_path / ".claude" / "skills"
         (skills_dir / "real-skill").mkdir(parents=True)
         (skills_dir / "real-skill" / "SKILL.md").write_text("# s\n")
-        (skills_dir / "skill-forge" / ".workspace").mkdir(parents=True)
-        (skills_dir / "skill-forge" / ".workspace" / "draft.md").write_text("draft")
+        (skills_dir / "shell-only" / "scripts").mkdir(parents=True)
         (skills_dir / "real-skill-workspace").mkdir()
         (skills_dir / "empty-dir").mkdir()
 
         result = load_skills_list(tmp_path)
         assert "real-skill" in result
-        assert "skill-forge" not in result
+        assert "shell-only" not in result
         assert "real-skill-workspace" not in result
         assert "empty-dir" not in result
 
@@ -286,7 +285,7 @@ class TestMain:
 
     def test_full_output_with_draft(self, tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
         """draft present -> output contains draft section."""
-        draft = tmp_path / DRAFT_FILE
+        draft = draft_file(tmp_path)
         draft.parent.mkdir(parents=True)
         draft.write_text("# test — IN PROGRESS\n## Status\npending\n")
 

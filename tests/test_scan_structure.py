@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from scan_structure import DEFAULT_EXCLUDES, main, scan_tree
-from shared import WORKSPACE_DIR
+from shared import workspace_dir
 
 
 # ── TestScanTree ───────────────────────────────────────
@@ -110,15 +110,15 @@ class TestMain:
         assert "app.py" in output
 
     def test_main_creates_workspace(self, tmp_path: Path) -> None:
-        """main ensures .workspace/ exists so later Writes don't trigger shell mkdir."""
+        """main ensures workspace dir exists so later Writes don't trigger shell mkdir."""
         main(project_dir=tmp_path)
-        assert (tmp_path / WORKSPACE_DIR).is_dir()
+        assert workspace_dir(tmp_path).is_dir()
 
     def test_main_workspace_idempotent(self, tmp_path: Path) -> None:
         """pre-existing workspace is preserved."""
-        workspace = tmp_path / WORKSPACE_DIR
-        workspace.mkdir(parents=True)
-        (workspace / "insights.md").write_text("existing")
+        ws = workspace_dir(tmp_path)
+        ws.mkdir(parents=True)
+        (ws / "insights.md").write_text("existing")
 
         main(project_dir=tmp_path)
-        assert (workspace / "insights.md").read_text() == "existing"
+        assert (ws / "insights.md").read_text() == "existing"

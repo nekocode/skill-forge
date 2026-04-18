@@ -13,7 +13,7 @@ from collections import Counter
 from pathlib import Path
 
 # shared module from same directory
-from shared import DRAFT_FILE, FILE_WRITE_TOOLS, TOOL_CALL_THRESHOLD
+from shared import FILE_WRITE_TOOLS, TOOL_CALL_THRESHOLD, WORKSPACE_DIR_NAME
 
 
 # ── core functions ────────────────────────────────────
@@ -60,18 +60,20 @@ def _extract_content_items(record: dict) -> list[dict] | None:
     return [item for item in content if isinstance(item, dict)]
 
 
-_DRAFT_PATH_SUFFIX = (DRAFT_FILE.parent.name, DRAFT_FILE.name)
+_DRAFT_NAME = "draft.md"
 
 
 def _is_draft_path(file_path: str) -> bool:
-    """True if file_path ends with the draft's parent/name suffix.
+    """True if file_path is a draft.md under the workspace root segment.
 
-    Match the last two parts (e.g. ".workspace/draft.md") — DRAFT_FILE.name
-    alone is too generic and would collide with unrelated files.
+    `draft.md` alone is too generic; the root segment pins it to skill-forge
+    workspaces specifically. Sourced from shared.WORKSPACE_DIR_NAME so a rename
+    there propagates here.
     """
     if not file_path:
         return False
-    return Path(file_path).parts[-2:] == _DRAFT_PATH_SUFFIX
+    parts = Path(file_path).parts
+    return parts[-1:] == (_DRAFT_NAME,) and WORKSPACE_DIR_NAME in parts
 
 
 def scan_session(session_file: Path) -> tuple[int, list[dict]]:

@@ -17,7 +17,7 @@ import os
 from pathlib import Path
 
 # shared module from same directory
-from shared import DRAFT_FILE, REGISTRY_FILE, SKILLS_DIR, load_registry
+from shared import REGISTRY_FILE, SKILLS_DIR, draft_file, load_registry
 from skill_catchup import main as catchup_main
 
 # default max lines
@@ -33,7 +33,7 @@ def load_draft_head(project_dir: Path, max_lines: int = DEFAULT_DRAFT_LINES) -> 
 
     File not found returns empty string.
     """
-    draft = project_dir / DRAFT_FILE
+    draft = draft_file(project_dir)
     if not draft.is_file():
         return ""
     lines = draft.read_text().splitlines()[:max_lines]
@@ -52,9 +52,8 @@ def load_skills_list(project_dir: Path) -> str:
     """List subdirectory names under .claude/skills/.
 
     SKILL.md presence is the skill anchor — filters out per-skill
-    `-workspace/` helpers and stray dirs without a manifest (e.g. a
-    `skill-forge/` left behind in plugin-mode where only `.workspace/`
-    lives inside). Directory not found returns empty string.
+    `-workspace/` helpers and stray dirs without a manifest.
+    Directory not found returns empty string.
     """
     skills_dir = project_dir / SKILLS_DIR
     if not skills_dir.is_dir():

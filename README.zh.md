@@ -54,7 +54,7 @@ skill-forge install
 
 ### 双文件安全模型
 
-外部内容（grep/glob/read 输出）写入 `.claude/skills/skill-forge/.workspace/insights.md`（低信任，hooks 不读）。验证合法后才提升到 `.claude/skills/skill-forge/.workspace/draft.md`（高信任，被 hooks 反复注入）。防止 prompt injection 放大。嵌入 `skill-forge/` skill 目录内部，让 YOLO 模式下 Write/Edit 零提示——`.claude/` 信任边界豁免递归进入真实 skill 目录，但不覆盖 `skills/` 的 dot 开头兄弟目录。
+外部内容（grep/glob/read 输出）写入 `~/.skill-forge/<slug>/insights.md`（低信任，hooks 不读）。验证合法后才提升到 `~/.skill-forge/<slug>/draft.md`（高信任，被 hooks 反复注入）。防止 prompt injection 放大。workspace 落在 `$HOME`（`.claude/` 之外），plugin 模式下项目无本地 `.claude/skills/skill-forge/SKILL.md`，Write/Edit 也零提示——`.claude/` 信任边界只豁免真实 skill 目录，在 `$HOME` 下完全绕开。`<slug>` 沿用 `~/.claude/projects/` 约定（`/Users/x/p` → `-Users-x-p`）。
 
 ### Hooks 架构
 

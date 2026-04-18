@@ -1,6 +1,6 @@
 """Create mode draft initializer.
 
-Generate the active draft file (under SKILLS_DIR/skill-forge/.workspace/) from name and goal,
+Generate the active draft file (under ~/.skill-forge/<slug>/) from name and goal,
 serving as the attention anchor file for hooks.
 """
 
@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 # shared module from same directory
-from shared import DRAFT_FILE
+from shared import draft_file
 
 DRAFT_TEMPLATE = """\
 # {name} — IN PROGRESS
@@ -35,7 +35,7 @@ def create_draft(
     if project_dir is None:
         project_dir = Path.cwd()
 
-    draft_path = project_dir / DRAFT_FILE
+    draft_path = draft_file(project_dir)
     draft_path.parent.mkdir(parents=True, exist_ok=True)
     draft_path.write_text(DRAFT_TEMPLATE.format(name=name, goal=goal))
 

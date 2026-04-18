@@ -103,7 +103,7 @@ class TestScanSession:
             {"type": "user", "message": "hello"},
             {"type": "assistant", "message": {"content": [
                 {"type": "tool_use", "name": "Write", "input": {
-                    "file_path": "/proj/.claude/skills/skill-forge/.workspace/draft.md",
+                    "file_path": "/root/.skill-forge/-proj/draft.md",
                 }},
             ]}},
         ])
@@ -115,12 +115,12 @@ class TestScanSession:
         session = _make_session(tmp_path, [
             {"type": "assistant", "message": {"content": [
                 {"type": "tool_use", "name": "Write", "input": {
-                    "file_path": "/x/.workspace/draft.md",
+                    "file_path": "/root/.skill-forge/-x/draft.md",
                 }},
             ]}},
             {"type": "assistant", "message": {"content": [
                 {"type": "tool_use", "name": "Edit", "input": {
-                    "file_path": "/x/.workspace/draft.md",
+                    "file_path": "/root/.skill-forge/-x/draft.md",
                 }},
             ]}},
         ])
@@ -174,7 +174,7 @@ class TestScanSession:
         session = _make_session(tmp_path, [
             {"type": "assistant", "message": {"content": [
                 {"type": "tool_use", "name": "WriteAll", "input": {
-                    "file_path": "/x/.workspace/draft.md",
+                    "file_path": "/root/.skill-forge/-x/draft.md",
                 }},
             ]}},
         ])
@@ -182,7 +182,7 @@ class TestScanSession:
         assert draft_line == -1
 
     def test_rejects_name_only_match(self, tmp_path: Path) -> None:
-        """draft.md under a different parent (not .workspace) should NOT match."""
+        """draft.md outside a .skill-forge/ tree should NOT match."""
         session = _make_session(tmp_path, [
             {"type": "assistant", "message": {"content": [
                 {"type": "tool_use", "name": "Write", "input": {
@@ -203,7 +203,7 @@ class TestScanSession:
             ]}},
             {"type": "assistant", "message": {"content": [
                 {"type": "tool_use", "name": "Write", "input": {
-                    "file_path": "/x/.workspace/draft.md",
+                    "file_path": "/root/.skill-forge/-x/draft.md",
                 }},
             ]}},
             {"type": "assistant", "message": {"content": [

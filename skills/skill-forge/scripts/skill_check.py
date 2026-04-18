@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 
 # shared module from same directory
-from shared import DRAFT_FILE, STATE_FILE, TOOL_CALL_THRESHOLD, load_state
+from shared import TOOL_CALL_THRESHOLD, draft_file, load_state, state_file
 
 
 # ── core functions ────────────────────────────────────
@@ -50,7 +50,7 @@ def check_draft_status(draft_path: Path) -> str | None:
     if phase_match:
         lines.append(f"Current: {phase_match.group(1).strip()}")
     lines.append(
-        f"Continue from current phase or delete {DRAFT_FILE} to abort."
+        f"Continue from current phase or delete {draft_path} to abort."
     )
     return "\n".join(lines)
 
@@ -77,10 +77,14 @@ def check_tool_calls(state_path: Path) -> str | None:
 
 
 def main(
-    draft_path: Path = DRAFT_FILE,
-    state_path: Path = STATE_FILE,
+    draft_path: Path | None = None,
+    state_path: Path | None = None,
 ) -> None:
     """Entry point. Check draft first, then tool calls. Output first non-None result."""
+    if draft_path is None:
+        draft_path = draft_file()
+    if state_path is None:
+        state_path = state_file()
     result = check_draft_status(draft_path)
     if result is not None:
         print(result)

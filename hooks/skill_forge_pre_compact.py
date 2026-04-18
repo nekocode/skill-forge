@@ -16,14 +16,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _bootstrap import resolve_scripts_path  # noqa: E402
 sys.path.insert(0, resolve_scripts_path())
-from shared import STATE_FILE, load_state, save_state  # noqa: E402
+from shared import load_state, save_state, state_file  # noqa: E402
 
 
-def mark_compacted(state_path: Path = STATE_FILE) -> None:
+def mark_compacted(state_path: Path | None = None) -> None:
     """Set compacted=True in the state file.
 
     Missing/corrupted file -> create new one. Preserves existing fields.
     """
+    if state_path is None:
+        state_path = state_file()
     state = load_state(state_path)
     state["compacted"] = True
     save_state(state, state_path)
@@ -32,7 +34,7 @@ def mark_compacted(state_path: Path = STATE_FILE) -> None:
 def main() -> None:
     """Entry point. Consume stdin (hook protocol), mark state, output empty JSON."""
     sys.stdin.read()  # consume stdin
-    mark_compacted(STATE_FILE)
+    mark_compacted()
     print(json.dumps({}))
 
 
