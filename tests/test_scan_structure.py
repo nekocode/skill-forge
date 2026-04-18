@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from scan_structure import DEFAULT_EXCLUDES, main, scan_tree
+from shared import WORKSPACE_DIR
 
 
 # ── TestScanTree ───────────────────────────────────────
@@ -107,3 +108,17 @@ class TestMain:
         main(project_dir=tmp_path)
         output = capsys.readouterr().out
         assert "app.py" in output
+
+    def test_main_creates_workspace(self, tmp_path: Path) -> None:
+        """main ensures .workspace/ exists so later Writes don't trigger shell mkdir."""
+        main(project_dir=tmp_path)
+        assert (tmp_path / WORKSPACE_DIR).is_dir()
+
+    def test_main_workspace_idempotent(self, tmp_path: Path) -> None:
+        """pre-existing workspace is preserved."""
+        workspace = tmp_path / WORKSPACE_DIR
+        workspace.mkdir(parents=True)
+        (workspace / "insights.md").write_text("existing")
+
+        main(project_dir=tmp_path)
+        assert (workspace / "insights.md").read_text() == "existing"

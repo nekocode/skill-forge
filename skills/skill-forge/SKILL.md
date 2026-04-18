@@ -207,10 +207,12 @@ Fewer starting errors = fewer optimizer rounds to converge.
 See **Skill evaluator** section. Write to disk only on pass ≥ 6.
 
 ### Step 5: on approval
-- Write to `.claude/skills/<n>/SKILL.md`
-- Clear `.claude/skills/skill-forge/.workspace/draft.md`
-- Update registry
-- Offer to run **improve mode** to tune the description
+- Write to `.claude/skills/<n>/SKILL.md` — this triggers the PostToolUse hook
+  which auto-upserts the registry; do NOT Write `skill_registry.json` manually
+  (that path sits outside any skill dir and prompts even in bypassPermissions).
+- Clear `.claude/skills/skill-forge/.workspace/draft.md` by writing an empty
+  string (Write, not Bash `rm` — the draft path is exempt, `rm` is not).
+- Offer to run **improve mode** to tune the description.
 
 ---
 
@@ -253,7 +255,9 @@ helper code, that code belongs in `scripts/` — write once, reference in SKILL.
 ### Step 3b: triggering improvement (eval-driven)
 
 1. Generate 20 trigger eval queries (10 should-trigger, 10 should-not-trigger).
-   Save to `.claude/skills/<name>-workspace/trigger_evals.json`:
+   Save to `.claude/skills/<name>/.opt/trigger_evals.json` (the `.opt/` dir
+   nests inside the skill, so the `.claude/` trust-boundary exemption applies
+   — `<name>-workspace/` as a sibling would prompt even in bypassPermissions):
    ```json
    [
      {"query": "<realistic user message>", "should_trigger": true},
@@ -271,7 +275,7 @@ helper code, that code belongs in `scripts/` — write once, reference in SKILL.
    ```bash
    python3 "${CLAUDE_PLUGIN_ROOT}/skills/skill-forge/scripts/optimize_description.py" \
      --skill-path ".claude/skills/<name>" \
-     --eval-set ".claude/skills/<name>-workspace/trigger_evals.json" \
+     --eval-set ".claude/skills/<name>/.opt/trigger_evals.json" \
      --max-iterations 5
    ```
 3. Show before/after description and score improvement.
@@ -283,14 +287,17 @@ helper code, that code belongs in `scripts/` — write once, reference in SKILL.
 
 ### Step 4: finalize
 
-- Apply changes with `Edit`
-- Delete `.claude/skills/skill-forge/.workspace/draft.md`
-- Append to CHANGELOG.md:
+- Apply changes with `Edit` on `.claude/skills/<n>/SKILL.md` — the PostToolUse
+  hook auto-upserts the registry; do NOT Write `skill_registry.json` manually
+  (outside any skill dir, prompts even in bypassPermissions).
+- Clear `.claude/skills/skill-forge/.workspace/draft.md` by writing an empty
+  string (Write, not Bash `rm` — draft path exempt, `rm` is not).
+- Append to CHANGELOG.md (in the skill dir, exempt — use Write/Edit, not shell
+  heredoc which shifts each call and misses any Bash allowlist):
   ```
   ## <ISO date> — v<bumped>
   - <what changed and why, in one line>
   ```
-- Update registry
 
 **Patch vs rewrite:** Use `Edit` unless >60% of content changes.
 

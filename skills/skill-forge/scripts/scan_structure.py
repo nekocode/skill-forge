@@ -9,6 +9,9 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+# shared module from same directory
+from shared import WORKSPACE_DIR
+
 # default excluded dirs (matching original find command + common additions)
 DEFAULT_EXCLUDES: frozenset[str] = frozenset({
     "node_modules",
@@ -85,6 +88,12 @@ def main(
     """Entry point. Scan and output to stdout."""
     if project_dir is None:
         project_dir = Path.cwd()
+
+    # Pre-create workspace so downstream Writes to insights.md don't force
+    # Claude to shell out `mkdir -p` — that bash call has no stable allowlist
+    # match and prompts in non-bypass mode. Scan mode is the only path that
+    # skips init_draft/init_improve (which already mkdir the workspace).
+    (project_dir / WORKSPACE_DIR).mkdir(parents=True, exist_ok=True)
 
     result = scan_tree(project_dir, max_depth=max_depth, max_lines=max_lines)
     if result:

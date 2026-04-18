@@ -16,6 +16,7 @@ from pathlib import Path
 
 STATE_FILE = Path(".claude/skill_forge_state.json")
 SKILLS_DIR = Path(".claude/skills")
+USER_SKILLS_DIR = Path.home() / ".claude" / "skills"
 REGISTRY_FILE = SKILLS_DIR / "skill_registry.json"
 
 # Workspace nests INSIDE the skill-forge skill dir so Claude Code's .claude/

@@ -4,35 +4,43 @@ description: Rename a skill — updates directory, all file references, workspac
 
 Rename a skill. `$ARGUMENTS` is `<old-name> <new-name>`.
 
+All work is delegated to `rename_skill.py` so Claude never has to shell out
+`mv`, Write `skill_registry.json` directly, or Edit files under
+`<old>-workspace/` — each of those paths triggers a permission prompt
+(unstable Bash allowlist / outside skill-dir trust exemption).
+
 ## Steps
 
-1. **Parse args.** Extract `old-name` and `new-name` from `$ARGUMENTS`. If missing, ask user.
+1. **Parse args.** Extract `old-name` and `new-name` from `$ARGUMENTS`.
+   If missing, ask the user with `AskUserQuestion` (load via
+   `ToolSearch select:AskUserQuestion` if not in scope).
 
-2. **Locate registry.** Check project scope first (`.claude/skills/skill_registry.json` under project root), then user scope (`~/.claude/skills/skill_registry.json`). Use whichever has the skill. If neither, error.
+2. **Dry-run to build the plan.**
+   ```bash
+   python3 "${CLAUDE_PLUGIN_ROOT}/skills/skill-forge/scripts/rename_skill.py" \
+     "<old-name>" "<new-name>" --dry-run
+   ```
+   The script auto-detects scope (project `.claude/skills/` first, else user
+   `~/.claude/skills/`). Pass `--scope project` or `--scope user` to force.
 
-3. **Validate.** `old-name` must exist in registry. `new-name` must NOT exist. `old-name` must differ from `new-name`.
+3. **Review output.** The plan lists every file edit, directory rename, and
+   the registry entry update. If it starts with `Errors (aborting):`, stop
+   and report the errors — do NOT attempt manual workarounds.
 
-4. **Abort if active draft references old name.** Check `.claude/skills/skill-forge/.workspace/draft.md` — if it exists and references `old-name`, warn user and abort (finish the improve/create session first).
+4. **Ask for confirmation** with `AskUserQuestion`, showing the plan.
+   Options: `Apply` / `Cancel`.
 
-5. **Scan all files for old name references.** Read and list every occurrence:
-   - `.claude/skills/<old-name>/SKILL.md` — frontmatter `name:`, headings, body text, script path references
-   - `.claude/skills/<old-name>/CHANGELOG.md` (if exists)
-   - `.claude/skills/<old-name>/scripts/*` (if exists) — file contents referencing old name
-   - `.claude/skills/<old-name>-workspace/` (if exists) — directory itself needs renaming
+5. **Apply (on Apply)** — same command without `--dry-run`:
+   ```bash
+   python3 "${CLAUDE_PLUGIN_ROOT}/skills/skill-forge/scripts/rename_skill.py" \
+     "<old-name>" "<new-name>"
+   ```
+   The script prints `Done. Renamed ...` on success. Relay that to the user.
 
-6. **Show planned changes and ask for confirmation.**
+## Notes
 
-7. **On confirmation, execute in this order:**
-   - Edit file contents FIRST (while paths are still at old location):
-     - `SKILL.md`: update frontmatter `name:` field + all body references
-     - `CHANGELOG.md`: update references (if exists)
-     - Scripts: update references (if any)
-   - Then rename directories:
-     - `.claude/skills/<old-name>/` → `.claude/skills/<new-name>/`
-     - `.claude/skills/<old-name>-workspace/` → `.claude/skills/<new-name>-workspace/` (if exists)
-   - Finally update registry:
-     - Set entry `name` to `new-name`
-     - Set entry `updated` to today (`YYYY-MM-DD`)
-     - Write back `skill_registry.json`
-
-8. **Print summary** of all files modified and directories renamed.
+- The script guards against renaming while an active draft references the
+  old name — it will error out and ask you to finish the current
+  create/improve session first.
+- Legacy `<old>-workspace/` sibling dirs (from before `.opt/` migration) are
+  renamed too, with a warning suggesting manual migration into `<new>/.opt/`.
