@@ -10,7 +10,7 @@
       "name": "skill-forge",
       "source": "./",
       "description": "Self-evolving skills system — creates, discovers, iterates, and optimizes Claude Code skills.",
-      "version": "0.7.2"
+      "version": "0.7.3"
     }
   ]
 }

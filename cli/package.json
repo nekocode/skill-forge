@@ -1,6 +1,6 @@
 {
   "name": "@nekocode/skill-forge",
-  "version": "0.8.5",
+  "version": "0.8.6",
   "description": "CLI for skill-forge — install plugins, manage skill registry, diagnose environments.",
   "type": "module",
   "bin": {
