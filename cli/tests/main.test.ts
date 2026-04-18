@@ -40,14 +40,14 @@ describe("parseCommand", () => {
     expect(result).toEqual({ command: "rm", args: ["foo", "--force"] });
   });
 
+  it("parses sync command", () => {
+    const result = parseCommand(["node", "skill-forge", "sync"]);
+    expect(result).toEqual({ command: "sync", args: [] });
+  });
+
   it("parses upgrade command", () => {
     const result = parseCommand(["node", "skill-forge", "upgrade"]);
     expect(result).toEqual({ command: "upgrade", args: [] });
-  });
-
-  it("parses upgrade-cli command", () => {
-    const result = parseCommand(["node", "skill-forge", "upgrade-cli"]);
-    expect(result).toEqual({ command: "upgrade-cli", args: [] });
   });
 
   it("returns unknown for unrecognized command", () => {

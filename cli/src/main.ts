@@ -10,8 +10,8 @@ import { run as uninstallRun } from "./commands/uninstall.js";
 import { run as listRun } from "./commands/list.js";
 import { runDoctor, formatResults } from "./commands/doctor.js";
 import { run as rmRun } from "./commands/rm.js";
+import { run as syncRun } from "./commands/sync.js";
 import { run as upgradeRun } from "./commands/upgrade.js";
-import { run as upgradeCliRun } from "./commands/upgrade-cli.js";
 
 // Single source of truth — reads version from package.json
 const require = createRequire(import.meta.url);
@@ -28,8 +28,8 @@ const KNOWN_COMMANDS = new Set([
   "rm",
   "doctor",
   "init",
+  "sync",
   "upgrade",
-  "upgrade-cli",
 ]);
 
 interface ParsedCommand {
@@ -71,8 +71,8 @@ Commands:
   rm <name> [...]  Remove skills (--force to skip confirmation)
   doctor           Diagnose environment health
   init             Initialize .claude/skills/ (project scope if .git/.claude exists, else user scope)
-  upgrade          Sync embedded plugin to latest release
-  upgrade-cli      Upgrade CLI to latest npm version
+  sync             Sync embedded plugin to latest release (project scope)
+  upgrade          Upgrade CLI to latest npm version
 
 Options:
   --help, -h       Show this help
@@ -119,12 +119,12 @@ async function main(): Promise<void> {
       initRun(cwd);
       break;
 
-    case "upgrade":
-      upgradeRun(cwd);
+    case "sync":
+      syncRun(cwd);
       break;
 
-    case "upgrade-cli":
-      upgradeCliRun();
+    case "upgrade":
+      upgradeRun();
       break;
 
     default:
