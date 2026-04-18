@@ -1,6 +1,6 @@
 """Create mode draft initializer.
 
-Generate .claude/skill_draft.md template from name and goal,
+Generate the active draft file (under SKILLS_DIR/.workspace/) from name and goal,
 serving as the attention anchor file for hooks.
 """
 
@@ -28,9 +28,9 @@ def create_draft(
     goal: str,
     project_dir: Path | None = None,
 ) -> None:
-    """Create skill_draft.md.
+    """Create the active draft file.
 
-    Auto-creates .claude/ directory. Overwrites existing draft.
+    Auto-creates the workspace directory. Overwrites existing draft.
     """
     if project_dir is None:
         project_dir = Path.cwd()

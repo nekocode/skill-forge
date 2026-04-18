@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from init_draft import DRAFT_TEMPLATE, create_draft, main
+from shared import DRAFT_FILE
 
 
 # ── TestCreateDraft ────────────────────────────────────
@@ -16,7 +17,7 @@ class TestCreateDraft:
     def test_creates_file(self, tmp_path: Path) -> None:
         """normal creation -> file exists, content contains name and goal."""
         create_draft("my-skill", "Automate deployment", project_dir=tmp_path)
-        draft = tmp_path / ".claude" / "skill_draft.md"
+        draft = tmp_path / DRAFT_FILE
         assert draft.exists()
         content = draft.read_text()
         assert "my-skill" in content
@@ -25,7 +26,7 @@ class TestCreateDraft:
     def test_contains_required_sections(self, tmp_path: Path) -> None:
         """draft contains required sections: Goal, Phase, Status."""
         create_draft("test", "goal", project_dir=tmp_path)
-        content = (tmp_path / ".claude" / "skill_draft.md").read_text()
+        content = (tmp_path / DRAFT_FILE).read_text()
         assert "## Goal" in content
         assert "## Phase" in content
         assert "## Status" in content
@@ -34,11 +35,11 @@ class TestCreateDraft:
     def test_creates_parent_dir(self, tmp_path: Path) -> None:
         """parent dir missing -> auto-create."""
         create_draft("test", "goal", project_dir=tmp_path)
-        assert (tmp_path / ".claude").is_dir()
+        assert (tmp_path / DRAFT_FILE).parent.is_dir()
 
     def test_overwrites_existing(self, tmp_path: Path) -> None:
         """existing draft -> overwrite."""
-        draft = tmp_path / ".claude" / "skill_draft.md"
+        draft = tmp_path / DRAFT_FILE
         draft.parent.mkdir(parents=True)
         draft.write_text("old content")
         create_draft("new-skill", "new goal", project_dir=tmp_path)
@@ -75,4 +76,4 @@ class TestMain:
         main(name="my-skill", goal="Automate tests", project_dir=tmp_path)
         output = capsys.readouterr().out
         assert "my-skill" in output
-        assert (tmp_path / ".claude" / "skill_draft.md").exists()
+        assert (tmp_path / DRAFT_FILE).exists()

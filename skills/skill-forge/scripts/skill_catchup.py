@@ -60,11 +60,25 @@ def _extract_content_items(record: dict) -> list[dict] | None:
     return [item for item in content if isinstance(item, dict)]
 
 
+_DRAFT_PATH_SUFFIX = (DRAFT_FILE.parent.name, DRAFT_FILE.name)
+
+
+def _is_draft_path(file_path: str) -> bool:
+    """True if file_path ends with the draft's parent/name suffix.
+
+    Match the last two parts (e.g. ".workspace/draft.md") — DRAFT_FILE.name
+    alone is too generic and would collide with unrelated files.
+    """
+    if not file_path:
+        return False
+    return Path(file_path).parts[-2:] == _DRAFT_PATH_SUFFIX
+
+
 def scan_session(session_file: Path) -> tuple[int, list[dict]]:
     """Single-pass JSONL scan: find last draft write line + collect assistant tool sequences.
 
     Returns (draft_line, filtered_turns).
-    draft_line: line number of last skill_draft.md write, -1 if not found.
+    draft_line: line number of last draft write, -1 if not found.
     filtered_turns: assistant tool call turns after draft_line.
     """
     write_tool_quoted = {f'"{t}"' for t in FILE_WRITE_TOOLS}
@@ -89,7 +103,7 @@ def scan_session(session_file: Path) -> tuple[int, list[dict]]:
                     if item.get("name", "") not in FILE_WRITE_TOOLS:
                         continue
                     fp = item.get("input", {}).get("file_path", "")
-                    if Path(fp).name == DRAFT_FILE.name:
+                    if _is_draft_path(fp):
                         draft_line = line_number
 
             # assistant tool call collection

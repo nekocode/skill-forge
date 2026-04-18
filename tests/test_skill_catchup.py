@@ -103,7 +103,7 @@ class TestScanSession:
             {"type": "user", "message": "hello"},
             {"type": "assistant", "message": {"content": [
                 {"type": "tool_use", "name": "Write", "input": {
-                    "file_path": "/proj/.claude/skill_draft.md",
+                    "file_path": "/proj/.claude/skills/.workspace/draft.md",
                 }},
             ]}},
         ])
@@ -115,12 +115,12 @@ class TestScanSession:
         session = _make_session(tmp_path, [
             {"type": "assistant", "message": {"content": [
                 {"type": "tool_use", "name": "Write", "input": {
-                    "file_path": "/x/skill_draft.md",
+                    "file_path": "/x/.workspace/draft.md",
                 }},
             ]}},
             {"type": "assistant", "message": {"content": [
                 {"type": "tool_use", "name": "Edit", "input": {
-                    "file_path": "/x/skill_draft.md",
+                    "file_path": "/x/.workspace/draft.md",
                 }},
             ]}},
         ])
@@ -174,19 +174,19 @@ class TestScanSession:
         session = _make_session(tmp_path, [
             {"type": "assistant", "message": {"content": [
                 {"type": "tool_use", "name": "WriteAll", "input": {
-                    "file_path": "/x/skill_draft.md",
+                    "file_path": "/x/.workspace/draft.md",
                 }},
             ]}},
         ])
         draft_line, _turns = scan_session(session)
         assert draft_line == -1
 
-    def test_rejects_similar_filename(self, tmp_path: Path) -> None:
-        """filename only suffix-matches (e.g. my_skill_draft.md) -> should not match."""
+    def test_rejects_name_only_match(self, tmp_path: Path) -> None:
+        """draft.md under a different parent (not .workspace) should NOT match."""
         session = _make_session(tmp_path, [
             {"type": "assistant", "message": {"content": [
                 {"type": "tool_use", "name": "Write", "input": {
-                    "file_path": "/x/my_skill_draft.md",
+                    "file_path": "/x/somewhere/draft.md",
                 }},
             ]}},
         ])
@@ -203,7 +203,7 @@ class TestScanSession:
             ]}},
             {"type": "assistant", "message": {"content": [
                 {"type": "tool_use", "name": "Write", "input": {
-                    "file_path": "/x/skill_draft.md",
+                    "file_path": "/x/.workspace/draft.md",
                 }},
             ]}},
             {"type": "assistant", "message": {"content": [

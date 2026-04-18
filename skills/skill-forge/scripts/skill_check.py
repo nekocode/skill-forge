@@ -50,7 +50,7 @@ def check_draft_status(draft_path: Path) -> str | None:
     if phase_match:
         lines.append(f"Current: {phase_match.group(1).strip()}")
     lines.append(
-        "Continue from current phase or delete .claude/skill_draft.md to abort."
+        f"Continue from current phase or delete {DRAFT_FILE} to abort."
     )
     return "\n".join(lines)
 

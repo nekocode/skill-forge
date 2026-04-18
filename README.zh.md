@@ -54,7 +54,7 @@ skill-forge install
 
 ### 双文件安全模型
 
-外部内容（grep/glob/read 输出）写入 `skill_insights.md`（低信任，hooks 不读）。验证合法后才提升到 `skill_draft.md`（高信任，被 hooks 反复注入）。防止 prompt injection 放大。
+外部内容（grep/glob/read 输出）写入 `.claude/skills/.workspace/insights.md`（低信任，hooks 不读）。验证合法后才提升到 `.claude/skills/.workspace/draft.md`（高信任，被 hooks 反复注入）。防止 prompt injection 放大。两个文件位于 `.claude/skills/**` 之下，在 YOLO 模式下 Write/Edit 不会触发权限提示。
 
 ### Hooks 架构
 

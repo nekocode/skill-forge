@@ -54,7 +54,7 @@ Run `skill-forge doctor` to verify your environment.
 
 ### Dual-File Security Model
 
-External content (grep/glob/read output) goes to `skill_insights.md` (low trust, hooks don't read it). Only after validation does content get promoted to `skill_draft.md` (high trust, injected by hooks). This prevents prompt injection amplification.
+External content (grep/glob/read output) goes to `.claude/skills/.workspace/insights.md` (low trust, hooks don't read it). Only after validation does content get promoted to `.claude/skills/.workspace/draft.md` (high trust, injected by hooks). This prevents prompt injection amplification. Both files live under `.claude/skills/**` so Write/Edit works without permission prompts even in YOLO mode.
 
 ### Hooks Architecture
 

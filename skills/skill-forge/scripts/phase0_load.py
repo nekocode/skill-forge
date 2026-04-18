@@ -22,7 +22,7 @@ DEFAULT_DRAFT_LINES = 20
 
 
 def load_draft_head(project_dir: Path, max_lines: int = DEFAULT_DRAFT_LINES) -> str:
-    """Read first N lines of .claude/skill_draft.md.
+    """Read first N lines of the active draft workspace file.
 
     File not found returns empty string.
     """
@@ -44,14 +44,14 @@ def run_catchup(project_dir: Path) -> str:
 def load_skills_list(project_dir: Path) -> str:
     """List subdirectory names under .claude/skills/.
 
+    SKILL.md presence is the skill anchor — filters out `.workspace/`,
+    per-skill `-workspace/` helpers, and stray dirs without a manifest.
     Directory not found returns empty string.
     """
     skills_dir = project_dir / SKILLS_DIR
     if not skills_dir.is_dir():
         return ""
-    names = sorted(
-        d.name for d in skills_dir.iterdir() if d.is_dir()
-    )
+    names = sorted(p.parent.name for p in skills_dir.glob("*/SKILL.md"))
     if not names:
         return ""
     return "\n".join(names)

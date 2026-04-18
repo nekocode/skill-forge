@@ -1,6 +1,6 @@
 """Improve mode session initializer.
 
-Copy existing skill's SKILL.md to .claude/skill_draft.md,
+Copy existing skill's SKILL.md to the active draft workspace file,
 append improve session timestamp header, activate hooks attention loop.
 """
 
@@ -20,7 +20,7 @@ def init_improve_session(
 ) -> bool:
     """Initialize improve session.
 
-    Copy .claude/skills/<name>/SKILL.md to .claude/skill_draft.md,
+    Copy .claude/skills/<name>/SKILL.md to the active draft workspace file,
     append improve session timestamp.
 
     Skill not found returns False, no draft created.

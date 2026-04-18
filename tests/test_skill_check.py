@@ -26,7 +26,7 @@ class TestCheckDraftStatus:
 
     def test_draft_in_progress(self, tmp_path: Path) -> None:
         """draft incomplete -> contains 'in progress'."""
-        draft = tmp_path / "skill_draft.md"
+        draft = tmp_path / "draft.md"
         draft.write_text(
             "# my-skill — IN PROGRESS\n"
             "## Phase 2: writing SKILL.md\n"
@@ -39,7 +39,7 @@ class TestCheckDraftStatus:
 
     def test_draft_in_progress_shows_phase(self, tmp_path: Path) -> None:
         """incomplete draft (single-line) -> output contains current Phase line."""
-        draft = tmp_path / "skill_draft.md"
+        draft = tmp_path / "draft.md"
         draft.write_text(
             "# my-skill\n"
             "## Phase 1: codebase research\n"
@@ -52,7 +52,7 @@ class TestCheckDraftStatus:
 
     def test_draft_in_progress_two_line_phase(self, tmp_path: Path) -> None:
         """incomplete draft (two-line, DRAFT_TEMPLATE default format) -> output contains current Phase."""
-        draft = tmp_path / "skill_draft.md"
+        draft = tmp_path / "draft.md"
         draft.write_text(
             "# my-skill — IN PROGRESS\n"
             "## Phase\n"
@@ -66,7 +66,7 @@ class TestCheckDraftStatus:
 
     def test_draft_in_progress_no_phase(self, tmp_path: Path) -> None:
         """incomplete draft without Phase line -> no crash, still returns hint."""
-        draft = tmp_path / "skill_draft.md"
+        draft = tmp_path / "draft.md"
         draft.write_text("# my-skill\n## Status\nworking\n")
         result = check_draft_status(draft)
         assert result is not None
@@ -74,7 +74,7 @@ class TestCheckDraftStatus:
 
     def test_draft_complete(self, tmp_path: Path) -> None:
         """draft complete -> contains 'complete' and 'evaluator'."""
-        draft = tmp_path / "skill_draft.md"
+        draft = tmp_path / "draft.md"
         draft.write_text(
             "# my-skill\n"
             "## Status\n"
@@ -87,7 +87,7 @@ class TestCheckDraftStatus:
 
     def test_draft_done(self, tmp_path: Path) -> None:
         """draft done -> also triggers completion hint."""
-        draft = tmp_path / "skill_draft.md"
+        draft = tmp_path / "draft.md"
         draft.write_text("# my-skill\n## Status\nDone\n")
         result = check_draft_status(draft)
         assert result is not None
@@ -95,7 +95,7 @@ class TestCheckDraftStatus:
 
     def test_draft_complete_case_insensitive(self, tmp_path: Path) -> None:
         """case insensitive: COMPLETE also recognized."""
-        draft = tmp_path / "skill_draft.md"
+        draft = tmp_path / "draft.md"
         draft.write_text("# my-skill\n## Status\nCOMPLETE\n")
         result = check_draft_status(draft)
         assert result is not None
@@ -103,7 +103,7 @@ class TestCheckDraftStatus:
 
     def test_draft_false_positive_done_in_body(self, tmp_path: Path) -> None:
         """'done' appears outside Status section -> not falsely judged as complete."""
-        draft = tmp_path / "skill_draft.md"
+        draft = tmp_path / "draft.md"
         draft.write_text(
             "# my-skill\n"
             "## Phase 1: done with research\n"

@@ -17,7 +17,12 @@ from pathlib import Path
 STATE_FILE = Path(".claude/skill_forge_state.json")
 SKILLS_DIR = Path(".claude/skills")
 REGISTRY_FILE = SKILLS_DIR / "skill_registry.json"
-DRAFT_FILE = Path(".claude/skill_draft.md")
+
+# Workspace lives under SKILLS_DIR so Claude Code's .claude/ trust-boundary
+# exemption for .claude/skills/** applies — Write/Edit here don't prompt even
+# in bypassPermissions. Dot-prefix keeps it out of skill enumeration.
+WORKSPACE_DIR = SKILLS_DIR / ".workspace"
+DRAFT_FILE = WORKSPACE_DIR / "draft.md"
 
 # ── threshold constants ──────────────────────────────────
 
