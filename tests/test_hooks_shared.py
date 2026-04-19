@@ -5,6 +5,7 @@ from pathlib import Path
 
 from shared import (
     DEFAULT_STATE,
+    RateLimiter,
     load_registry,
     load_state,
     parse_frontmatter,
@@ -188,3 +189,43 @@ class TestParseFrontmatter:
         result = parse_frontmatter(content)
         assert result is not None
         assert result["desc"] == "line one line two"
+
+
+# ── RateLimiter ────────────────────────────────────────
+
+
+class TestRateLimiter:
+    """Token-bucket inter-launch throttle."""
+
+    def test_first_call_does_not_sleep(self, monkeypatch) -> None:
+        """no prior launch -> throttle returns immediately, no sleep."""
+        sleeps: list[float] = []
+        monkeypatch.setattr("shared.time.sleep", lambda s: sleeps.append(s))
+        limiter = RateLimiter(rpm=60)
+        limiter.throttle()
+        assert sleeps == []
+
+    def test_rapid_successive_calls_sleep_between(self, monkeypatch) -> None:
+        """back-to-back throttle calls pause for the inter-launch gap."""
+        sleeps: list[float] = []
+        now = [0.0]
+        monkeypatch.setattr("shared.time.sleep", lambda s: sleeps.append(s))
+        # monotonic advances by sleep amount so second call sees a fresh clock
+        monkeypatch.setattr("shared.time.monotonic", lambda: now[0])
+
+        limiter = RateLimiter(rpm=60)  # 1s between launches
+        limiter.throttle()
+        now[0] = 0.3  # only 0.3s passed
+        limiter.throttle()
+        assert len(sleeps) == 1
+        assert 0.6 < sleeps[0] <= 0.7  # need ~0.7s to make a full second
+
+    def test_rpm_zero_coerces_to_one(self) -> None:
+        """rpm=0 must not cause a divide-by-zero; floor at 1 RPM."""
+        limiter = RateLimiter(rpm=0)
+        assert limiter._min_interval == 60.0
+
+    def test_higher_rpm_shorter_interval(self) -> None:
+        """rpm=120 -> 0.5s; rpm=60 -> 1.0s."""
+        assert RateLimiter(rpm=120)._min_interval == 0.5
+        assert RateLimiter(rpm=60)._min_interval == 1.0

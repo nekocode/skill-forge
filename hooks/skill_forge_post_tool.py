@@ -28,6 +28,7 @@ from shared import (  # noqa: E402
     save_registry,
     save_state,
 )
+from quick_validate import validate_skill as structural_validate  # noqa: E402
 
 REQUIRED_FRONTMATTER = {"name", "description"}
 
@@ -76,12 +77,22 @@ def bump_version(v: str) -> str:
 # ── Validation ───────────────────────────────────────────────────────────────
 
 
-def validate_skill(content: str, fm: dict | None = None) -> list[str]:
+def validate_skill(content: str, fm: dict | None = None, skill_path: Path | None = None) -> list[str]:
     """Return list of warning strings (not errors — we don't block).
 
     fm: pre-parsed frontmatter to avoid redundant parsing. None triggers internal parsing.
+    skill_path: when provided, runs structural schema validation (kebab-case name,
+    description ≤ 1024, allowed-key whitelist) — the first line of defense
+    against typos silently landing in the registry.
     """
-    warnings = []
+    warnings: list[str] = []
+
+    # Structural schema first — surfaces field-type / key-whitelist issues
+    # that the soft checks below would never catch (e.g. 'descripton' typo
+    # means no-op on the soft checks but structural flags it as unexpected key).
+    if skill_path is not None:
+        warnings.extend(structural_validate(skill_path, content=content))
+
     if fm is None:
         fm = parse_frontmatter(content)
 
@@ -128,7 +139,7 @@ def main():
 
         if content is not None:
             fm = parse_frontmatter(content)
-            warnings = validate_skill(content, fm=fm)
+            warnings = validate_skill(content, fm=fm, skill_path=skill_path.parent)
 
             if fm and fm.get("name"):
                 scope = "project" if ".claude" in skill_path.parts else "personal"

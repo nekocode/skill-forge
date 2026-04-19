@@ -1,21 +1,10 @@
-"""Self-evolution meta-optimizer for prompt templates (dev tool).
+"""Meta-optimizer for prompt templates (dev tool).
 
-Applies the DSPy optimization pattern to ALL prompts in the project:
-- Python constants in optimize_description.py (evaluate/improve templates)
-- Markdown sections in SKILL.md (description rules, eval query guidance, evaluator criteria)
-
-Developer workflow:
-  1. Accumulate eval data (trigger_evals.json) from /improve sessions
-  2. Run: python self_evolve.py --skills-dir .claude/skills [--apply]
-  3. Review: git diff
-  4. Test, commit, release
-
-Usage:
-  python self_evolve.py --skills-dir .claude/skills [--variants 3] [--apply] [--rpm 46]
-
-API calls run concurrently, throttled by a shared RPM budget. Default 46 RPM fits
-a Tier-1 Anthropic account (50 RPM cap). Raise `--rpm` on higher tiers for faster
-runs.
+Evolves Python constants in optimize_description.py and markdown sections
+in SKILL.md. Workflow: accumulate trigger_evals.json → run this script →
+git diff → commit. Concurrent API calls gated by a shared RPM budget;
+default 46 fits Tier-1 (50 RPM cap).
+Usage: `python self_evolve.py --skills-dir .claude/skills [--variants 3] [--apply] [--rpm 46]`
 """
 
 from __future__ import annotations
@@ -25,27 +14,18 @@ import json
 import random
 import re
 import sys
-import threading
-import time
+import time  # noqa: F401 — kept so tests can monkeypatch self_evolve.time.sleep
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable, TypeVar
 
-# Multi-sample mean fights Claude's stochastic scoring (same prompt, different score
-# across runs — observed ±0.50 on guidance scorers). k=2 reduces variance by ~√2;
-# higher k blows the ~1h API budget.
+# k=2: stochastic scoring has ±0.50 swing per run; √2 noise reduction. Higher k
+# blows the API budget. Lifts under SIGNIFICANCE_THRESHOLD are resampling noise.
 SAMPLE_RUNS = 2
-# Minimum lift for a variant to beat baseline. Empirically, noise produces ±0.10-0.15
-# swings; any lift smaller than this is indistinguishable from resampling noise.
 SIGNIFICANCE_THRESHOLD = 0.15
 
-# Default Tier-1 safe rate: 46 RPM → 1.304s between launches. Leaves 4 RPM headroom
-# under the 50 RPM cap for retries and burst tolerance. Override via --rpm.
-DEFAULT_RPM = 46
-
-# PromptBreeder-lite: rotating directives to push the generator out of local paraphrase.
-# One style is injected per variant so `n` variants explore `n` different axes.
+# PromptBreeder-lite: one style per variant pushes the generator off local paraphrase.
 _THINKING_STYLES: tuple[str, ...] = (
     "rewrite as if instructing a skeptical senior engineer who won't follow vague advice",
     "rewrite as a terse spec a compiler could parse — strip all hedging",
@@ -55,47 +35,47 @@ _THINKING_STYLES: tuple[str, ...] = (
     "rewrite as if the reader has never seen this task type before",
 )
 
-from optimize_description import (
+from optimize_description import (  # noqa: E402
     EVALUATE_TEMPLATE,
     IMPROVE_FN_GUIDANCE,
     IMPROVE_FP_GUIDANCE,
     _call_claude_once as _raw_call_claude,
+    split_train_test,
 )
-from shared import log_stderr as _log
+from shared import DEFAULT_RPM, RateLimiter, log_stderr as _log  # noqa: E402
+
+# Holdout ratio matches optimize_description's primary-path split (60/40 seed 42)
+# so both optimizers are calibrated to the same evaluation convention.
+HOLDOUT_RATIO = 0.6
+HOLDOUT_SEED = 42
+# Train-test gap above this flags overfit. <0.15 is resampling noise, >0.30 is
+# almost always overfit; 0.30 preserves signal-to-noise.
+OVERFIT_GAP_THRESHOLD = 0.30
 
 
 # ── rate limiter + parallel map ─────────────────────
-# All API calls funnel through the `call_claude` wrapper below, which blocks
-# until `_min_launch_interval` has elapsed since the previous launch across
-# ALL threads — single source of truth for the RPM budget.
+# All API calls funnel through the `call_claude` wrapper below, which delegates
+# to the module-level `_limiter` — a single shared.RateLimiter instance that
+# serializes launch timestamps across all worker threads. Tests inspect the
+# interval via `_limiter._min_interval`.
 
 _T = TypeVar("_T")
 _U = TypeVar("_U")
 
-_rate_lock = threading.Lock()
-_last_launch_time = 0.0
-_min_launch_interval = 60.0 / DEFAULT_RPM
+_limiter = RateLimiter(rpm=DEFAULT_RPM)
 
 
 def _configure_rate_limit(rpm: int) -> None:
-    """Set the inter-launch floor in seconds from the target RPM. Called once from main()."""
-    global _min_launch_interval
-    _min_launch_interval = 60.0 / max(rpm, 1)
+    """Rebind the module limiter for the given RPM. Called once from main()."""
+    global _limiter
+    _limiter = RateLimiter(rpm=rpm)
 
 
 def _throttle() -> None:
-    """Block until the minimum inter-launch gap has elapsed.
-
-    Only serializes call-start timestamps; the underlying subprocess work proceeds
-    concurrently once launched. Uses `time.sleep` so tests can mock it out.
+    """Delegate to the shared rate limiter. Kept as module-level alias so
+    `patch("self_evolve._throttle")` call sites in tests keep working.
     """
-    global _last_launch_time
-    with _rate_lock:
-        now = time.monotonic()
-        wait = _min_launch_interval - (now - _last_launch_time)
-        if wait > 0:
-            time.sleep(wait)
-        _last_launch_time = time.monotonic()
+    _limiter.throttle()
 
 
 # 3 attempts absorbs transient empty responses under parallel claude-CLI load.
@@ -210,22 +190,16 @@ def extract_markdown_section(content: str, heading: str) -> str:
     return section.strip()
 
 
-def replace_markdown_section(content: str, heading: str, new_body: str) -> str:
-    """Replace the body of a markdown section, keeping the heading intact."""
-    pattern = re.compile(rf'^(#{{2,4}}\s+{re.escape(heading)}[ \t]*\n)', re.MULTILINE)
-    match = pattern.search(content)
-    if not match:
-        return content
-
-    level = len(re.match(r'^(#{2,4})', match.group(1)).group(1))
-    heading_end = match.end()
-
-    next_pattern = re.compile(rf'^#{{{1},{level}}}\s+', re.MULTILINE)
-    next_match = next_pattern.search(content, heading_end)
-
-    if next_match:
-        return content[:heading_end] + "\n" + new_body + "\n\n" + content[next_match.start():]
-    return content[:heading_end] + "\n" + new_body + "\n"
+# replace_markdown_section / apply_results / patch_python_constant / format_python_constant
+# live in self_evolve_apply.py (split out to stay under the file-size cap).
+# Re-exported here for back-compat with existing `from self_evolve import ...` call sites
+# (including tests that patch these symbols on this module).
+from self_evolve_apply import (  # noqa: E402
+    apply_results,
+    format_python_constant as _format_python_constant,
+    patch_python_constant as _patch_python_constant,
+    replace_markdown_section,
+)
 
 
 # ── eval data collection ────────────────────────────
@@ -258,23 +232,17 @@ def collect_eval_data(skills_dir: Path) -> list[dict]:
 _DEFAULT_MOCK_DESC = "A multi-step workflow skill for complex tasks"
 
 
-def score_evaluator_prompt(
-    template: str,
-    eval_data: list[dict],
-) -> float:
-    """Score an evaluate prompt template against labeled eval data.
+def score_evaluator_prompt(template: str, eval_data: list[dict]) -> float:
+    """Score an evaluate template by LLM-judge accuracy on labeled eval data.
 
-    Per-case description preferred (falls back to `_DEFAULT_MOCK_DESC`) so the
-    template is judged on distinguishing matching vs. non-matching pairs, not
-    on a single fixed description that happens to match every labeled case.
-
-    Returns accuracy 0.0-1.0. Single call per case (no majority vote) for speed.
-    Cases are evaluated in parallel; the global rate limiter gates API invocation.
+    Per-case description falls back to `_DEFAULT_MOCK_DESC` so the template
+    is judged on matching vs. non-matching pairs, not a single fixed desc.
+    Single call per case (no majority vote) for speed; parallelized with the
+    global rate limiter gating API invocation. Cap 30 balances variance
+    reduction against API budget.
     """
     if not eval_data:
         return 0.0
-
-    # cap 30: balances variance-reduction (larger sample) against API budget.
     capped = eval_data[:30]
 
     def _judge(item: dict) -> bool:
@@ -290,10 +258,9 @@ def score_evaluator_prompt(
     return sum(1 for r in results if r) / len(capped)
 
 
-# One case per theme forces guidance prompts to generalize across domains,
-# not overfit whichever N cases happen to sort first in trigger_evals.json.
-# `"api "` has a trailing space to avoid substring hits inside words like
-# `apiary` / `graphiql`; switch to word-boundary regex if themes grow.
+# One case per theme: guidance prompts must generalize across domains, not
+# overfit whichever cases sort first. "api " trailing space avoids substring
+# hits inside `apiary` / `graphiql`; switch to word-boundary regex if themes grow.
 _THEME_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("deploy", ("deploy", "release", "production", "staging", "rollback")),
     ("migration", ("migrat", "schema", "seed", "backfill")),
@@ -344,11 +311,8 @@ def score_guidance_prompt(guidance: str, guidance_type: str, eval_data: list[dic
     if not result:
         return 0.0
 
-    # Scoring weights: 4 criteria at 0.25 each = 1.0 max
-    #   0.25: produced non-empty output
-    #   0.25: length within limit (300 chars)
-    #   0.25: contains expected trigger/exclusion phrases
-    #   0.25: for FN guidance: expanded description; for FP guidance: has "when" clause
+    # 4 criteria × 0.25 each: non-empty / length ≤ 300 / expected phrases /
+    # expansion (FN) or "when" clause (FP).
     score, lower = 0.25, result.lower()
     if len(result) <= 300:
         score += 0.25
@@ -541,129 +505,67 @@ def evolve_prompt(name: str, current: str, metric_type: str,
                   eval_data: list[dict], n_variants: int = 3) -> dict:
     """Meta-optimize a single prompt. Returns result dict with winner.
 
-    A variant replaces the baseline only if its score exceeds baseline by at least
-    SIGNIFICANCE_THRESHOLD. This rejects pseudo-improvements caused by resampling noise.
+    Train/test holdout: eval_data is split 60/40. Variants are scored on
+    train only; the winner is selected by train score (constrained by
+    SIGNIFICANCE_THRESHOLD). The winner is then re-scored on the held-out
+    test set — this number is never used to select, only to flag overfit.
+
+    A variant replaces the baseline only if its train score exceeds baseline
+    by at least SIGNIFICANCE_THRESHOLD. If the winner's train-test gap exceeds
+    OVERFIT_GAP_THRESHOLD, `overfit_risk=True` in the result so a reviewer
+    can decide manually.
+
+    The instruction_quality scorer ignores eval_data (it uses hardcoded mock
+    tasks), so its train and test scores are identical by construction — the
+    gap flag is inert for that metric.
     """
     _log(f"\n=== Evolving: {name} ===")
-    current_score = score_prompt(name, current, metric_type, eval_data)
-    _log(f"  Current score: {current_score:.2f} (mean of {SAMPLE_RUNS} samples)")
-    best, best_score = current, current_score
+    train_set, test_set = split_train_test(eval_data, ratio=HOLDOUT_RATIO, seed=HOLDOUT_SEED)
+    _log(f"  Split: {len(train_set)} train / {len(test_set)} test")
+
+    current_train = score_prompt(name, current, metric_type, train_set)
+    _log(f"  Current train: {current_train:.2f} (mean of {SAMPLE_RUNS} samples)")
+    best, best_train = current, current_train
 
     variants = generate_variants(current, name, n=n_variants)
     _log(f"  Generated {len(variants)} variants")
-    # score all variants concurrently; rate limiter still serializes API launches
-    variant_scores = _run_parallel(
-        lambda v: score_prompt(name, v, metric_type, eval_data),
+    # score all variants concurrently on train; rate limiter still serializes launches
+    variant_trains = _run_parallel(
+        lambda v: score_prompt(name, v, metric_type, train_set),
         variants,
     )
-    for i, (variant, variant_score) in enumerate(zip(variants, variant_scores)):
-        margin = variant_score - current_score
-        _log(f"  Variant {i + 1}: {variant_score:.2f} (Δ={margin:+.2f})")
+    for i, (variant, variant_train) in enumerate(zip(variants, variant_trains)):
+        margin = variant_train - current_train
+        _log(f"  Variant {i + 1} train: {variant_train:.2f} (Δ={margin:+.2f})")
         # both clauses are essential: must beat the running best AND clear the
         # significance bar against the original baseline (stops drift via tiny steps).
-        if variant_score > best_score and margin > SIGNIFICANCE_THRESHOLD:
-            best_score, best = variant_score, variant
+        if variant_train > best_train and margin > SIGNIFICANCE_THRESHOLD:
+            best_train, best = variant_train, variant
 
     improved = best != current
+    # Test-set rescore happens only when a variant won AND there's a test split —
+    # the whole point of a holdout is no optimization pressure on test, so we
+    # never score losers on it. When unchanged, train-only scores are reused.
+    if improved and test_set:
+        current_test = score_prompt(name, current, metric_type, test_set)
+        best_test = score_prompt(name, best, metric_type, test_set)
+    else:
+        current_test = current_train
+        best_test = best_train
+
+    overfit_risk = (best_train - best_test) > OVERFIT_GAP_THRESHOLD
     _log(f"  {'Winner' if improved else 'No improvement'}: "
-         f"{best_score:.2f} (min lift {SIGNIFICANCE_THRESHOLD:+.2f})")
-    return {"name": name, "original": current, "best": best,
-            "original_score": current_score, "best_score": best_score,
-            "improved": improved, "variants_tested": len(variants)}
+         f"train={best_train:.2f} test={best_test:.2f} "
+         f"(min lift {SIGNIFICANCE_THRESHOLD:+.2f}"
+         f"{', OVERFIT' if overfit_risk else ''})")
 
-
-# ── source patching (--apply) ───────────────────────
-
-
-def apply_results(results: list[dict], catalog: list[PromptEntry],
-                  py_source: Path, md_source: Path) -> int:
-    """Apply winning prompts to their source files. Returns patch count."""
-    patched = 0
-
-    # group results by source type
-    entry_map = {e.name: e for e in catalog}
-    py_content = py_source.read_text() if py_source.is_file() else ""
-    md_content = md_source.read_text() if md_source.is_file() else ""
-
-    for result in results:
-        if not result["improved"]:
-            continue
-
-        entry = entry_map.get(result["name"])
-        if not entry:
-            continue
-
-        if entry.source_type == "python_constant":
-            new_py = _patch_python_constant(py_content, entry.source_key, result["best"])
-            if new_py != py_content:
-                py_content = new_py
-                patched += 1
-                _log(f"  Patched Python: {entry.source_key}")
-
-        elif entry.source_type == "markdown_section":
-            new_md = replace_markdown_section(md_content, entry.source_key, result["best"])
-            if new_md != md_content:
-                md_content = new_md
-                patched += 1
-                _log(f"  Patched SKILL.md: {entry.source_key}")
-
-    if patched > 0:
-        if py_source.is_file():
-            py_source.write_text(py_content)
-        if md_source.is_file():
-            md_source.write_text(md_content)
-        _log(f"\n{patched} prompt(s) patched. Review: git diff")
-
-    return patched
-
-
-def _patch_python_constant(content: str, const_name: str, new_value: str) -> str:
-    """Replace a Python string constant written as NAME = (\\n...\\n) with new value.
-
-    Only matches parenthesized multiline format. Single-line or triple-quote formats
-    are NOT supported — the function logs a warning and returns content unchanged.
-    """
-    pattern = re.compile(
-        rf'^{const_name} = \(\n(.*?)\n\)',
-        re.MULTILINE | re.DOTALL,
-    )
-    match = pattern.search(content)
-    if not match:
-        _log(f"  WARNING: {const_name} not found in source")
-        return content
-
-    formatted = _format_python_constant(const_name, new_value)
-    return content[:match.start()] + formatted + content[match.end():]
-
-
-def _format_python_constant(name: str, value: str) -> str:
-    """Format a string value as a Python parenthesized string constant.
-
-    Escapes backslash/quote/CR/LF/TAB so literal control chars in the generated variant
-    don't produce unterminated string literals when splicing into source.
-    """
-    escaped = (
-        value.replace("\\", "\\\\")
-        .replace('"', '\\"')
-        .replace("\n", "\\n")
-        .replace("\r", "\\r")
-        .replace("\t", "\\t")
-    )
-    lines: list[str] = []
-    remaining = escaped
-    while remaining:
-        if len(remaining) <= 85:
-            lines.append(remaining)
-            break
-        split_at = remaining.rfind(" ", 0, 85)
-        split_at = split_at + 1 if split_at != -1 else 85
-        lines.append(remaining[:split_at])
-        remaining = remaining[split_at:]
-
-    if len(lines) == 1:
-        return f'{name} = (\n    "{lines[0]}"\n)'
-    parts = [f'{name} = ('] + [f'    "{ln}"' for ln in lines] + [")"]
-    return "\n".join(parts)
+    return {
+        "name": name, "original": current, "best": best,
+        "original_train_score": current_train, "original_test_score": current_test,
+        "best_train_score": best_train, "best_test_score": best_test,
+        "overfit_risk": overfit_risk,
+        "improved": improved, "variants_tested": len(variants),
+    }
 
 
 # ── entry point ─────────────────────────────────────
@@ -687,7 +589,7 @@ def main() -> None:
     args = parser.parse_args()
 
     _configure_rate_limit(args.rpm)
-    _log(f"Rate limit: {args.rpm} RPM ({_min_launch_interval:.2f}s between launches)")
+    _log(f"Rate limit: {args.rpm} RPM ({_limiter._min_interval:.2f}s between launches)")
 
     skills_dir = Path(args.skills_dir)
     scripts_dir = Path(__file__).parent
@@ -722,11 +624,15 @@ def main() -> None:
     summary = {
         "total_prompts": len(results),
         "improved": sum(1 for r in results if r["improved"]),
+        "overfit_flagged": sum(1 for r in results if r.get("overfit_risk")),
         "results": [
             {
                 "name": r["name"],
-                "original_score": r["original_score"],
-                "best_score": r["best_score"],
+                "original_train_score": r["original_train_score"],
+                "original_test_score": r["original_test_score"],
+                "best_train_score": r["best_train_score"],
+                "best_test_score": r["best_test_score"],
+                "overfit_risk": r["overfit_risk"],
                 "improved": r["improved"],
                 "variants_tested": r["variants_tested"],
                 "winning_prompt": r["best"] if r["improved"] else None,

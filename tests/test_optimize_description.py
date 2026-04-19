@@ -184,51 +184,65 @@ class TestSplitTrainTest:
 
 
 class TestEvaluateSingle:
-    """Single query trigger evaluation (majority vote)."""
+    """Single query trigger evaluation (real-execution eval averaged over runs)."""
 
-    @patch("optimize_description.call_claude")
-    def test_majority_yes(self, mock_claude: object) -> None:
-        """2/3 YES -> True."""
-        mock_claude.side_effect = ["YES", "YES", "NO"]
-        result = evaluate_single("desc", "query", runs=3)
-        assert result is True
+    @patch("optimize_description.run_single_query")
+    def test_above_threshold(self, mock_run: object) -> None:
+        """2/3 triggers >= 0.5 threshold -> True."""
+        mock_run.side_effect = [True, True, False]
+        assert evaluate_single("desc", "query", runs=3, threshold=0.5) is True
 
-    @patch("optimize_description.call_claude")
-    def test_majority_no(self, mock_claude: object) -> None:
-        """2/3 NO -> False."""
-        mock_claude.side_effect = ["NO", "NO", "YES"]
-        result = evaluate_single("desc", "query", runs=3)
-        assert result is False
+    @patch("optimize_description.run_single_query")
+    def test_below_threshold(self, mock_run: object) -> None:
+        """1/3 triggers < 0.5 threshold -> False."""
+        mock_run.side_effect = [True, False, False]
+        assert evaluate_single("desc", "query", runs=3, threshold=0.5) is False
 
-    @patch("optimize_description.call_claude")
-    def test_all_yes(self, mock_claude: object) -> None:
-        """all YES -> True."""
-        mock_claude.side_effect = ["YES", "YES", "YES"]
-        result = evaluate_single("desc", "query", runs=3)
-        assert result is True
+    @patch("optimize_description.run_single_query")
+    def test_all_triggered(self, mock_run: object) -> None:
+        """3/3 triggers -> True."""
+        mock_run.side_effect = [True, True, True]
+        assert evaluate_single("desc", "query", runs=3) is True
 
-    @patch("optimize_description.call_claude")
-    def test_handles_unexpected_output(self, mock_claude: object) -> None:
-        """non-YES output (maybe/empty) -> counted as NO."""
-        mock_claude.side_effect = ["maybe", "", "NO"]
-        result = evaluate_single("desc", "query", runs=3)
-        assert result is False
+    @patch("optimize_description.run_single_query")
+    def test_threshold_custom(self, mock_run: object) -> None:
+        """runs=3, 2 triggers, threshold=0.7 -> False (0.67 < 0.7)."""
+        mock_run.side_effect = [True, True, False]
+        assert evaluate_single("desc", "query", runs=3, threshold=0.7) is False
 
-    @patch("optimize_description.call_claude")
-    def test_prompt_includes_undertrigger_bias(self, mock_claude: object) -> None:
-        """DSPy: prompt biases toward NO when uncertain."""
-        mock_claude.return_value = "YES"
-        evaluate_single("desc", "query", runs=1)
-        prompt_used = mock_claude.call_args[0][0].lower()
-        assert "bias toward no" in prompt_used or "undertriggering is safer" in prompt_used
+    @patch("optimize_description.run_single_query")
+    def test_zero_runs(self, mock_run: object) -> None:
+        """runs=0 short-circuits False without invoking the subprocess."""
+        assert evaluate_single("desc", "query", runs=0) is False
+        mock_run.assert_not_called()
 
-    @patch("optimize_description.call_claude")
-    def test_prompt_includes_complex_task_context(self, mock_claude: object) -> None:
-        """DSPy: prompt explains skills trigger for multi-step workflows."""
-        mock_claude.return_value = "NO"
-        evaluate_single("desc", "query", runs=1)
-        prompt_used = mock_claude.call_args[0][0].lower()
-        assert "multi-step" in prompt_used
+    @patch("optimize_description.run_single_query")
+    def test_limiter_throttled_each_run(self, mock_run: object) -> None:
+        """RateLimiter.throttle() called once per run when supplied."""
+        from shared import RateLimiter  # noqa: PLC0415 — test-only import
+
+        mock_run.return_value = True
+        limiter = RateLimiter(rpm=6000)  # essentially no delay
+        with patch.object(limiter, "throttle") as mock_throttle:
+            evaluate_single("desc", "query", runs=3, threshold=0.5, limiter=limiter)
+            assert mock_throttle.call_count == 3
+
+    @patch("optimize_description.run_single_query")
+    def test_passes_params_to_runner(self, mock_run: object) -> None:
+        """skill_name/project_root/timeout/model propagate to run_single_query."""
+        mock_run.return_value = True
+        evaluate_single(
+            "desc", "query", runs=1,
+            skill_name="my-skill",
+            timeout=15,
+            model="claude-sonnet-4-6",
+        )
+        args, kwargs = mock_run.call_args
+        assert args[0] == "query"
+        assert args[1] == "my-skill"
+        assert args[2] == "desc"
+        assert kwargs["timeout"] == 15
+        assert kwargs["model"] == "claude-sonnet-4-6"
 
 
 # ── TestCallClaude ──────────────────────────────────
@@ -410,21 +424,16 @@ class TestOptState:
 
 
 class TestPromptTemplates:
-    """Prompt template constants used by evaluate/improve."""
+    """Legacy LLM-judge templates retained for self_evolve meta-optimizer.
+
+    These constants are not used in the primary real-eval path, but
+    self_evolve imports them to optimize the templates themselves.
+    """
 
     def test_evaluate_template_has_placeholders(self) -> None:
         """template contains {description} and {query} placeholders."""
         assert "{description}" in EVALUATE_TEMPLATE
         assert "{query}" in EVALUATE_TEMPLATE
-
-    @patch("optimize_description.call_claude")
-    def test_evaluate_formats_template(self, mock_claude: object) -> None:
-        """evaluate_single formats template with description and query."""
-        mock_claude.return_value = "YES"
-        evaluate_single("my-desc", "my-query", runs=1)
-        prompt_used = mock_claude.call_args[0][0]
-        assert "my-desc" in prompt_used
-        assert "my-query" in prompt_used
 
 
 # ── TestEvaluateSet ──────────────────────────────────
@@ -559,6 +568,29 @@ class TestImproveDescription:
         prompt_used = mock_claude.call_args[0][0]
         assert "False negatives" in prompt_used
         assert "False positives" in prompt_used
+
+    @patch("optimize_description.call_claude")
+    def test_prior_attempts_in_prompt(self, mock_claude: object) -> None:
+        """prior_attempts -> prompt explicitly lists them as don't-repeat."""
+        mock_claude.return_value = "Structurally different try"
+        failures = [{"query": "q1", "should_trigger": True, "got": False}]
+        improve_description(
+            "Current", failures,
+            prior_attempts=["Attempt v1", "Attempt v2"],
+        )
+        prompt_used = mock_claude.call_args[0][0]
+        assert "Attempt v1" in prompt_used
+        assert "Attempt v2" in prompt_used
+        assert "do not repeat" in prompt_used.lower()
+
+    @patch("optimize_description.call_claude")
+    def test_no_prior_attempts_no_dedup_clause(self, mock_claude: object) -> None:
+        """empty/missing prior_attempts -> no anti-repeat clause (saves tokens)."""
+        mock_claude.return_value = "Better"
+        failures = [{"query": "q1", "should_trigger": True, "got": False}]
+        improve_description("Current", failures)
+        prompt_used = mock_claude.call_args[0][0].lower()
+        assert "previous attempts" not in prompt_used
 
 
 # ── TestRunOptimization ──────────────────────────────

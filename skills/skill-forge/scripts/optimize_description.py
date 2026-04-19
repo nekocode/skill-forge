@@ -1,13 +1,26 @@
 """Eval-driven description optimizer.
 
-Iteratively evaluate skill description trigger accuracy via claude --print subprocess,
-train/test split to prevent overfitting, improve until optimal.
-Result JSON to stdout, progress to stderr.
+Iteratively evaluates a skill's trigger accuracy by *actually* running
+`claude -p <query>` subprocesses and checking whether the Skill tool
+fires with the target name (Anthropic skill-creator's approach).
+Train/test split prevents overfitting; best iteration chosen by test score.
 
-DSPy-inspired improvements:
-- Structured failure analysis (FP/FN classification with directional improvement prompts)
-- Context-rich evaluation prompts (undertrigger bias, complex-task-only semantics)
-- Per-round state persistence (opt_state.json: round history, convergence detection)
+Key mechanics:
+- Real execution eval (not LLM-as-judge): each query spawns a claude child
+  process and we parse its stream-json output. Early-exits the instant the
+  Skill invocation is detected — no need to wait for the full turn.
+- Concurrent evaluation via ThreadPoolExecutor. Launch cadence is gated by
+  a shared RateLimiter (shared.RateLimiter) so the RPM budget is
+  respected across all threads.
+- Per-round state persistence (opt_state.json) captures round history,
+  FP/FN counts, convergence flag for external inspection / resume.
+- Improve-prompt includes *history of past tries* so the generator is
+  steered away from repeating the same variants.
+
+Legacy LLM-judge constants (EVALUATE_TEMPLATE / IMPROVE_FN_GUIDANCE /
+IMPROVE_FP_GUIDANCE / call_claude / _call_claude_once) are retained purely
+for self_evolve.py's meta-optimizer, which scores prompt templates by
+LLM-judge. The primary optimizer path does NOT invoke them.
 """
 
 from __future__ import annotations
@@ -17,17 +30,37 @@ import json
 import random
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
 # shared module from same directory
-from shared import log_stderr as _log, parse_frontmatter, run_subprocess
+from shared import (
+    DEFAULT_RPM,
+    RateLimiter,
+    log_stderr as _log,
+    parse_frontmatter,
+    run_subprocess,
+)
+from run_eval import find_project_root, run_single_query
 
-# model used for eval/improve calls — change to test different models
+# model used for improve/judge calls — change to test different models
 CLAUDE_MODEL = "claude-sonnet-4-6"
 
-# ── prompt templates (optimized via self_evolve.py dev tool) ──
-# Developer runs self_evolve.py to find better variants, then updates these constants.
+# Defaults mirror Anthropic skill-creator's run_eval.py: 10 concurrent workers
+# saturates a Tier-1 API without hitting 429s when combined with the RPM
+# limiter. 3 runs per query averages out the per-run stochasticity of real
+# eval (same query can trigger on run 1 and not on run 2). 30s covers a
+# typical claude --print turn including stream events; early-exit makes
+# most runs finish in ~3-5s.
+DEFAULT_NUM_WORKERS = 10
+DEFAULT_RUNS_PER_QUERY = 3
+DEFAULT_TIMEOUT = 30
+DEFAULT_TRIGGER_THRESHOLD = 0.5
+
+# ── prompt templates (legacy: self_evolve.py meta-optimizer only) ──
+# self_evolve imports these to optimize the templates themselves against a
+# separate LLM-judge metric. The primary real-eval path does NOT use them.
 # Placeholders: {description}, {query} are filled at call site.
 
 EVALUATE_TEMPLATE = (
@@ -223,59 +256,99 @@ def classify_failures(failures: list[dict]) -> tuple[list[dict], list[dict]]:
     return (false_positives, false_negatives)
 
 
-# ── evaluation logic ─────────────────────────────────
+# ── aggregated evaluation ────────────────────────────
 
 
 def evaluate_single(
     description: str,
     query: str,
-    runs: int = 3,
+    runs: int = DEFAULT_RUNS_PER_QUERY,
+    *,
+    skill_name: str = "",
+    project_root: Path | None = None,
+    timeout: int = DEFAULT_TIMEOUT,
+    threshold: float = DEFAULT_TRIGGER_THRESHOLD,
+    limiter: RateLimiter | None = None,
+    model: str | None = None,
 ) -> bool:
-    """Trigger decision for a single query via majority vote.
+    """Trigger decision for a single query via N real-execution runs.
 
-    Call claude `runs` times. YES counts as triggered, others (NO/maybe/empty) as not.
-    Majority YES -> True.
+    Runs `claude -p <query>` `runs` times and computes trigger_rate. Returns
+    True iff trigger_rate >= threshold. Stream early-exit keeps most runs
+    cheap; the rate limiter gates cross-thread launch cadence.
     """
-    yes_count = 0
-    prompt = EVALUATE_TEMPLATE.format(description=description, query=query)
-    for _ in range(runs):
-        response = call_claude(prompt)
-        # only explicit YES (case-insensitive) counts as triggered
-        if response.strip().upper() == "YES":
-            yes_count += 1
+    if runs <= 0:
+        return False
 
-    # float division for strict majority (> half, not >=), do not change to //
-    return yes_count > runs / 2
+    triggers = 0
+    for _ in range(runs):
+        if limiter is not None:
+            limiter.throttle()
+        if run_single_query(
+            query, skill_name, description,
+            timeout=timeout, project_root=project_root, model=model,
+        ):
+            triggers += 1
+
+    return (triggers / runs) >= threshold
 
 
 def evaluate_set(
     description: str,
     eval_set: list[dict],
+    *,
+    skill_name: str = "",
+    project_root: Path | None = None,
+    num_workers: int = DEFAULT_NUM_WORKERS,
+    runs: int = DEFAULT_RUNS_PER_QUERY,
+    timeout: int = DEFAULT_TIMEOUT,
+    threshold: float = DEFAULT_TRIGGER_THRESHOLD,
+    limiter: RateLimiter | None = None,
+    model: str | None = None,
 ) -> tuple[float, list[dict]]:
-    """Score against entire eval set.
+    """Score against entire eval set concurrently.
 
-    Returns (accuracy 0.0-1.0, failure list).
-    Each failure: {query, should_trigger, got}.
+    ThreadPoolExecutor runs evaluate_single across queries; the shared
+    limiter ensures total launch RPM stays within budget. Workers default
+    to min(len(eval_set), num_workers).
+
+    Returns (accuracy 0.0-1.0, failure list). Each failure:
+    {query, should_trigger, got}.
     """
     if not eval_set:
         return (1.0, [])
 
+    workers = max(1, min(num_workers, len(eval_set)))
+
+    def _score_one(item: dict) -> tuple[dict, bool]:
+        triggered = evaluate_single(
+            description, item["query"], runs,
+            skill_name=skill_name,
+            project_root=project_root,
+            timeout=timeout,
+            threshold=threshold,
+            limiter=limiter,
+            model=model,
+        )
+        return (item, triggered)
+
     failures: list[dict] = []
     correct = 0
-
-    for item in eval_set:
-        query = item["query"]
-        should_trigger = item["should_trigger"]
-        triggered = evaluate_single(description, query)
-
-        if triggered == should_trigger:
-            correct += 1
-        else:
-            failures.append({
-                "query": query,
-                "should_trigger": should_trigger,
-                "got": triggered,
-            })
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        for future in as_completed([executor.submit(_score_one, item) for item in eval_set]):
+            try:
+                item, got = future.result()
+            except Exception as exc:  # noqa: BLE001 — best-effort, log and continue
+                _log(f"  Query failed: {exc}")
+                continue
+            if got == item["should_trigger"]:
+                correct += 1
+            else:
+                failures.append({
+                    "query": item["query"],
+                    "should_trigger": item["should_trigger"],
+                    "got": got,
+                })
 
     accuracy = correct / len(eval_set)
     return (accuracy, failures)
@@ -286,12 +359,17 @@ def improve_description(
     failures: list[dict],
     *,
     classified: tuple[list[dict], list[dict]] | None = None,
+    prior_attempts: list[str] | None = None,
 ) -> str:
     """Improve description via claude based on failure cases.
 
     No failures -> return original description (no claude call).
     Empty result or >300 chars -> fallback to original.
     classified: pre-computed (false_positives, false_negatives) to avoid re-classification.
+    prior_attempts: previously-tried descriptions. Passed to the LLM as an
+    explicit "don't repeat these" list — skill-creator's optimizer shows
+    convergence is much faster when each round explores a structurally
+    different axis rather than paraphrasing the last try.
     """
     if not failures:
         return description
@@ -319,6 +397,13 @@ def improve_description(
             f"{IMPROVE_FP_GUIDANCE}"
         )
 
+    if prior_attempts:
+        prior = "\n".join(f"- {p}" for p in prior_attempts)
+        prompt_parts.append(
+            f"\nPrevious attempts (do NOT repeat or paraphrase these; "
+            f"try a structurally different axis):\n{prior}"
+        )
+
     prompt_parts.append(
         "\nWrite an improved description under 250 characters. "
         "Output ONLY the new description text, nothing else."
@@ -343,6 +428,14 @@ def run_optimization(
     max_iterations: int = 5,
     state_path: Path | None = None,
     skill_name: str = "",
+    *,
+    project_root: Path | None = None,
+    num_workers: int = DEFAULT_NUM_WORKERS,
+    runs: int = DEFAULT_RUNS_PER_QUERY,
+    timeout: int = DEFAULT_TIMEOUT,
+    threshold: float = DEFAULT_TRIGGER_THRESHOLD,
+    limiter: RateLimiter | None = None,
+    model: str | None = None,
 ) -> dict:
     """Iteratively optimize description, select best by test score.
 
@@ -356,15 +449,27 @@ def run_optimization(
     current_description = description
     rounds: list[RoundRecord] = []
     converged = False
+    prior_attempts: list[str] = [description]  # feeds improve_description's anti-repeat clause
+
+    common = dict(
+        skill_name=skill_name,
+        project_root=project_root,
+        num_workers=num_workers,
+        runs=runs,
+        timeout=timeout,
+        threshold=threshold,
+        limiter=limiter,
+        model=model,
+    )
 
     iteration = 0
     for iteration in range(1, max_iterations + 1):
         _log(f"Iteration {iteration}/{max_iterations}")
 
-        train_score, train_failures = evaluate_set(current_description, train_set)
+        train_score, train_failures = evaluate_set(current_description, train_set, **common)
         _log(f"  Train score: {train_score:.2f}")
 
-        test_score, _ = evaluate_set(current_description, test_set)
+        test_score, _ = evaluate_set(current_description, test_set, **common)
         _log(f"  Test score:  {test_score:.2f}")
 
         # DSPy-inspired: track FP/FN counts per round for structured history
@@ -407,10 +512,14 @@ def run_optimization(
             _log("  Perfect train score, stopping early.")
             break
 
-        current_description = improve_description(
+        new_description = improve_description(
             current_description, train_failures,
             classified=(false_positives, false_negatives),
+            prior_attempts=prior_attempts,
         )
+        if new_description != current_description:
+            prior_attempts.append(new_description)
+        current_description = new_description
         _log(f"  Improved: {current_description[:80]}...")
 
     return {
@@ -432,11 +541,22 @@ def main() -> None:
     Skill or evals load failure -> exit(1).
     """
     parser = argparse.ArgumentParser(
-        description="Eval-driven skill description optimizer"
+        description="Eval-driven skill description optimizer (real-execution eval)"
     )
     parser.add_argument("--skill-path", required=True, help="Path to SKILL.md or skill directory")
     parser.add_argument("--eval-set", required=True, help="Path to trigger_evals.json")
     parser.add_argument("--max-iterations", type=int, default=5, help="Max optimization iterations")
+    parser.add_argument("--num-workers", type=int, default=DEFAULT_NUM_WORKERS,
+                        help=f"Concurrent eval workers (default {DEFAULT_NUM_WORKERS})")
+    parser.add_argument("--runs-per-query", type=int, default=DEFAULT_RUNS_PER_QUERY,
+                        help=f"Runs per eval query for trigger-rate averaging (default {DEFAULT_RUNS_PER_QUERY})")
+    parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT,
+                        help=f"Per-query timeout seconds (default {DEFAULT_TIMEOUT})")
+    parser.add_argument("--trigger-threshold", type=float, default=DEFAULT_TRIGGER_THRESHOLD,
+                        help=f"Trigger-rate pass threshold (default {DEFAULT_TRIGGER_THRESHOLD})")
+    parser.add_argument("--rpm", type=int, default=DEFAULT_RPM,
+                        help=f"API RPM cap (default {DEFAULT_RPM}; raise on higher Anthropic tiers)")
+    parser.add_argument("--model", default=None, help="Model for claude -p (default: user config)")
     args = parser.parse_args()
 
     # load skill
@@ -461,6 +581,8 @@ def main() -> None:
     _log(f"Loaded {len(evals)} evals: {len(train_set)} train, {len(test_set)} test")
 
     # run optimization with state persistence
+    limiter = RateLimiter(rpm=args.rpm)
+    project_root = find_project_root(skill_path if skill_path.is_dir() else skill_path.parent)
     result = run_optimization(
         original_description,
         train_set,
@@ -468,6 +590,13 @@ def main() -> None:
         max_iterations=args.max_iterations,
         state_path=state_path,
         skill_name=name,
+        project_root=project_root,
+        num_workers=args.num_workers,
+        runs=args.runs_per_query,
+        timeout=args.timeout,
+        threshold=args.trigger_threshold,
+        limiter=limiter,
+        model=args.model,
     )
 
     # output result JSON

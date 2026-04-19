@@ -9,5 +9,6 @@
   "repository": "https://github.com/nekocode/skill-forge",
   "license": "MIT",
   "commands": "./commands/",
-  "skills": "./skills/"
+  "skills": "./skills/",
+  "agents": "./agents/"
 }

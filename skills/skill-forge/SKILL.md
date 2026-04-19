@@ -216,8 +216,19 @@ scenarios, not single verbs. Three-clause structure:
 
 Fewer starting errors = fewer optimizer rounds to converge.
 
-### Step 4: run the evaluator
-See **Skill evaluator** section. Write to disk only on pass ≥ 6.
+**Instruction style: explain why, not MUST/NEVER.** Modern LLMs act more
+reliably when they understand the *reason* behind a constraint than when
+they're handed a list of unexplained rules. Prefer "Write the config to
+`<path>` so the reloader watcher picks it up without a restart" over "MUST
+write to `<path>`". Rules divorced from their purpose break in edge cases
+the author didn't foresee; rules with a rationale generalize.
+
+### Step 4: grade via independent subagent
+Spawn the `skill-grader` agent (the `Agent` tool with `subagent_type="skill-grader"`)
+to produce a calibrated verdict on the draft. See **Skill evaluator** for the
+rubric; the grader returns JSON you parse for `total` and `threshold_pass`.
+Self-evaluating produces charity-biased scores — the grader has no sunk cost
+in the draft and scores the text as written. Write to disk only on `total ≥ 6`.
 
 ### Step 5: on approval
 - Record the score so the registry picks it up (the PostToolUse hook reads it
@@ -306,8 +317,9 @@ helper code, that code belongs in `scripts/` — write once, reference in SKILL.
 
 ### Step 4: finalize
 
-- Re-run the evaluator on the patched draft, then record the score so the
-  registry update reflects the new quality (without this it sticks at the
+- Re-grade the patched draft via the `skill-grader` subagent (same agent as
+  create mode — fresh context, independent scoring). Then record the score so
+  the registry update reflects the new quality (without this it sticks at the
   previous score, or `0/8` if never recorded):
   ```bash
   python3 "${CLAUDE_PLUGIN_ROOT}/skills/skill-forge/scripts/record_eval_score.py" <score>
@@ -345,11 +357,40 @@ Skip if: task < 3 tool calls, pure read-only, or simple single-file edit.
 
 ## Skill evaluator
 
-Score before writing to disk.
+Scoring runs in the `skill-grader` subagent — fresh context, no sunk cost in
+the draft, produces calibrated scores. The grader reads the draft file,
+applies the rubric below, and returns a JSON verdict. The main agent does
+*not* self-evaluate.
+
+Invocation:
+```
+Agent tool, subagent_type="skill-grader"
+prompt: "Grade draft at <absolute path>. Mode: create|improve. Write verdict to <output path> and echo to stdout."
+```
+
+Verdict schema (`total` is the decision key):
+```json
+{
+  "skill_name": "...",
+  "mode": "create",
+  "scores": {
+    "trigger_quality": {"score": 3, "evidence": "..."},
+    "step_clarity":    {"score": 2, "evidence": "..."},
+    "completeness":    {"score": 2, "evidence": "..."}
+  },
+  "total": 7,
+  "threshold_pass": true,
+  "non_discrimination_flags": ["..."],
+  "suggestions": [{"priority": "high", "category": "steps", "text": "..."}]
+}
+```
+
+Rubric (the grader applies this; shown here so users can audit its calls).
+**Keep in sync with `agents/skill-grader.md` — any change here must also go there.**
 
 **Trigger quality (0–3)**
 - 3: three-clause structure complete (Use when / Even if / Do NOT); ≤ 250 chars;
-  front-loaded keywords; no vague verbs; qualified shared keywords. Optimizer FP/FN drop each round.
+  front-loaded keywords; no vague verbs; qualified shared keywords.
 - 2: has `Use when` but missing pushy coverage, or `Do NOT use when` too vague.
 - 1: vague, simple verbs, or one-step tasks only. Likely FPs on keyword overlap.
 - 0: no description, or matches everything.
@@ -365,11 +406,12 @@ Score before writing to disk.
 - 1: missing verification or notes.
 - 0: missing steps.
 
-**Non-discrimination check (bonus, post-production):** if an assertion passes
-100% both with- and without-skill, it's testing Claude's baseline, not the
-skill. Flag and sharpen on next improve.
+**Non-discrimination check** — assertion that passes both with and without
+the skill tests Claude's baseline capability, not the skill's value. Grader
+flags these in `non_discrimination_flags` so you sharpen them next improve.
 
-**Threshold:** ≥ 6 → write. 4–5 → revise once, ask user. < 4 → show breakdown, ask user.
+**Threshold:** `total ≥ 6` → write. 4–5 → revise once, ask user. < 4 → show
+breakdown, ask user.
 
 ---
 

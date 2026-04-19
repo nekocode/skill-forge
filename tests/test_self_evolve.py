@@ -11,8 +11,16 @@ import self_evolve
 
 @pytest.fixture(autouse=True)
 def _no_sleep(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Skip time.sleep in self_evolve to keep tests fast."""
+    """Skip time.sleep to keep tests fast.
+
+    After the RateLimiter migration the actual sleep call lives in
+    shared.time.sleep (RateLimiter.throttle), so both locations must be
+    neutralized — patching only self_evolve.time.sleep would leak real
+    sleeps through to the limiter at higher RPM caps.
+    """
+    import shared  # noqa: PLC0415 — test-only
     monkeypatch.setattr(self_evolve.time, "sleep", lambda _: None)
+    monkeypatch.setattr(shared.time, "sleep", lambda _: None)
 
 from self_evolve import (
     PromptEntry,
@@ -474,8 +482,10 @@ class TestEvolvePrompt:
     @patch("self_evolve.generate_variants")
     @patch("self_evolve.score_prompt")
     def test_no_improvement(self, mock_score: object, mock_gen: object) -> None:
-        """no variant beats current -> improved=False."""
-        mock_score.side_effect = [0.9, 0.7, 0.6, 0.5]
+        """no variant beats current -> improved=False. Value-keyed mock
+        absorbs the extra train/test-rescore calls the holdout path adds."""
+        scores = {"current": 0.9, "v1": 0.7, "v2": 0.6, "v3": 0.5}
+        mock_score.side_effect = lambda name, v, mt, ed: scores[v]
         mock_gen.return_value = ["v1", "v2", "v3"]
         result = evolve_prompt("test", "current", "evaluator_accuracy", [{"query": "q"}])
         assert result["improved"] is False
@@ -485,11 +495,36 @@ class TestEvolvePrompt:
     def test_rejects_below_threshold(self, mock_score: object, mock_gen: object) -> None:
         """variant score above baseline but lift < SIGNIFICANCE_THRESHOLD → rejected."""
         # baseline 0.65, variants 0.70 / 0.75 / 0.60 — all lifts < 0.15
-        mock_score.side_effect = [0.65, 0.70, 0.75, 0.60]
+        scores = {"current": 0.65, "v1": 0.70, "v2": 0.75, "v3": 0.60}
+        mock_score.side_effect = lambda name, v, mt, ed: scores[v]
         mock_gen.return_value = ["v1", "v2", "v3"]
         result = evolve_prompt("test", "current", "evaluator_accuracy", [{"query": "q"}])
         assert result["improved"] is False
         assert result["best"] == "current"
+
+    @patch("self_evolve.generate_variants")
+    @patch("self_evolve.score_prompt")
+    def test_overfit_risk_flag(self, mock_score: object, mock_gen: object) -> None:
+        """Large train-test gap on the selected winner -> overfit_risk=True."""
+        eval_data = [{"query": f"q{i}", "should_trigger": i % 2 == 0} for i in range(10)]
+        # score_prompt signature: (name, value, metric_type, eval_data_subset)
+        # eval_data_subset is a list; train subset is larger than test subset.
+        # v1 scores great on train (0.95) but tanks on test (0.40) -> overfit.
+        train_scores = {"current": 0.50, "v1": 0.95, "v2": 0.55, "v3": 0.50}
+        test_scores = {"current": 0.50, "v1": 0.40, "v2": 0.55, "v3": 0.50}
+
+        def _score(name, value, mt, ed_subset):
+            # train has 6 items at ratio=0.6, test has 4 items
+            return train_scores[value] if len(ed_subset) >= 6 else test_scores[value]
+
+        mock_score.side_effect = _score
+        mock_gen.return_value = ["v1", "v2", "v3"]
+        result = evolve_prompt("test", "current", "evaluator_accuracy", eval_data)
+        assert result["improved"] is True
+        assert result["best"] == "v1"
+        assert result["best_train_score"] == 0.95
+        assert result["best_test_score"] == 0.40
+        assert result["overfit_risk"] is True
 
     @patch("self_evolve.generate_variants")
     @patch("self_evolve.score_prompt")
@@ -597,7 +632,9 @@ class TestMain:
         ]
         mock_evolve.return_value = {
             "name": "test", "original": "old", "best": "new",
-            "original_score": 0.5, "best_score": 0.8,
+            "original_train_score": 0.5, "original_test_score": 0.55,
+            "best_train_score": 0.8, "best_test_score": 0.75,
+            "overfit_risk": False,
             "improved": True, "variants_tested": 3,
         }
         with patch("sys.argv", ["self_evolve.py", "--skills-dir", "/fake"]):
@@ -605,7 +642,9 @@ class TestMain:
         output = json.loads(capsys.readouterr().out)
         assert output["total_prompts"] == 1
         assert output["improved"] == 1
+        assert output["overfit_flagged"] == 0
         assert output["results"][0]["winning_prompt"] == "new"
+        assert output["results"][0]["best_test_score"] == 0.75
 
     @patch("self_evolve.collect_eval_data")
     def test_exits_on_no_data(self, mock_collect: object) -> None:
@@ -655,15 +694,15 @@ class TestRateLimiter:
     def test_configure_sets_interval(self) -> None:
         """--rpm arg converts cleanly to seconds-between-launches."""
         _configure_rate_limit(60)
-        assert self_evolve._min_launch_interval == pytest.approx(1.0)
+        assert self_evolve._limiter._min_interval == pytest.approx(1.0)
         _configure_rate_limit(30)
-        assert self_evolve._min_launch_interval == pytest.approx(2.0)
+        assert self_evolve._limiter._min_interval == pytest.approx(2.0)
         _configure_rate_limit(DEFAULT_RPM)  # restore default
 
     def test_configure_rejects_zero(self) -> None:
         """rpm=0 clamps to 1 to avoid division by zero."""
         _configure_rate_limit(0)
-        assert self_evolve._min_launch_interval == pytest.approx(60.0)
+        assert self_evolve._limiter._min_interval == pytest.approx(60.0)
         _configure_rate_limit(DEFAULT_RPM)
 
     @patch("self_evolve._raw_call_claude")

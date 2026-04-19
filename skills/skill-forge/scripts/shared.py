@@ -11,6 +11,8 @@ import os
 import re
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 # ── path constants ───────────────────────────────────────
@@ -175,6 +177,45 @@ def run_subprocess(cmd: list[str], timeout: int = 30, cwd: str | None = None) ->
 def log_stderr(message: str) -> None:
     """Progress log output to stderr."""
     print(message, file=sys.stderr)
+
+
+# ── rate limiter ─────────────────────────────────────────
+
+# Tier-1 Anthropic cap is 50 RPM — default leaves 4 RPM headroom for retries.
+# Raise via constructor on higher tiers. Each optimizer gets its own instance
+# so tests stay isolated; self_evolve and optimize_description do not share state.
+DEFAULT_RPM = 46
+
+
+class RateLimiter:
+    """Token-bucket style inter-launch throttle for concurrent API callers.
+
+    Only serializes call-start timestamps — the underlying subprocess work
+    proceeds concurrently once launched. `sleep` is monkey-patchable by tests.
+    Thread-safe; one instance shared across a pool of worker threads.
+    """
+
+    def __init__(self, rpm: int = DEFAULT_RPM) -> None:
+        self._min_interval = 60.0 / max(rpm, 1)
+        self._lock = threading.Lock()
+        # Negative infinity makes the first call's gap check pass without sleep
+        # regardless of the current monotonic clock reading.
+        self._last_launch = float("-inf")
+
+    def throttle(self) -> None:
+        """Block until the minimum inter-launch gap has elapsed.
+
+        Lock scopes only the slot reservation — sleep happens unlocked so
+        concurrent callers can compute their own future slot in parallel.
+        Holding the lock across sleep would collapse pool throughput to a
+        single thread.
+        """
+        with self._lock:
+            now = time.monotonic()
+            wait = self._min_interval - (now - self._last_launch)
+            self._last_launch = now + max(wait, 0.0)
+        if wait > 0:
+            time.sleep(wait)
 
 
 # ── frontmatter parsing ──────────────────────────────────
