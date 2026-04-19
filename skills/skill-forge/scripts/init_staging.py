@@ -9,7 +9,9 @@ SKILL.md, so Claude Code's trust-boundary exemption doesn't cover it.
 Two usage shapes:
 
   init_staging.py <name>
-      Create mode: empty staging dir ready to be written into.
+      Create mode: pre-writes a SKILL.md skeleton with frontmatter and
+      empty section headers, so Claude iterates with Edit instead of
+      authoring layout + frontmatter structure from scratch each time.
 
   init_staging.py <name> --source .claude/skills/<name>
       Improve mode: copy the existing skill dir into staging as the
@@ -29,6 +31,35 @@ import sys
 from pathlib import Path
 
 from shared import staging_dir
+
+
+_SKELETON = """\
+---
+name: {name}
+description: >
+  Use when <specific multi-step scenario — name real artifacts>.
+  Even if the user just says <short phrase>, use when they mention <real phrasing>.
+  Do NOT use when <simple single-step or adjacent task>.
+user-invocable: true
+---
+
+# {name}
+
+<one-paragraph intent: what this skill does and why it exists>
+
+## Prerequisites
+-
+
+## Steps
+1.
+2.
+
+## Verification
+-
+
+## Notes
+-
+"""
 
 
 # Stricter than quick_validate's NAME_PATTERN (which accepts "123"): staging
@@ -69,6 +100,7 @@ def prepare(
         shutil.copytree(source, target)
     else:
         target.mkdir(parents=True, exist_ok=True)
+        (target / "SKILL.md").write_text(_SKELETON.format(name=name))
     return target
 
 

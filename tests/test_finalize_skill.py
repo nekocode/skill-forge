@@ -260,6 +260,115 @@ def test_finalize_update_rejects_missing_target(tmp_path):
         mod.finalize("my-skill", mode="update", project_dir=tmp_path)
 
 
+# ── changelog + bump ────────────────────────────────────────────────
+
+
+def _preload_registry(tmp_path: Path, name: str, version: str) -> None:
+    reg_path = tmp_path / SKILLS_DIR / "skill_registry.json"
+    reg_path.parent.mkdir(parents=True, exist_ok=True)
+    reg_path.write_text(json.dumps({
+        "version": "1",
+        "skills": [{
+            "name": name,
+            "version": version,
+            "scope": "project",
+            "created": "2026-01-01",
+            "updated": "2026-01-01",
+            "auto_trigger": True,
+            "description_chars": 50,
+            "eval_score": 6,
+            "usage_count": 0,
+        }],
+    }))
+
+
+def test_finalize_changelog_appended_with_computed_version(tmp_path):
+    _preload_registry(tmp_path, "my-skill", "1.2.3")
+    target = tmp_path / SKILLS_DIR / "my-skill"
+    target.mkdir(parents=True)
+    (target / "SKILL.md").write_text("old")
+
+    _write_staged_skill(tmp_path, "my-skill")
+    mod.finalize(
+        "my-skill", mode="update", project_dir=tmp_path,
+        changelog="clarify step 3", bump="minor",
+    )
+
+    changelog = (target / "CHANGELOG.md").read_text()
+    # header uses new version (1.3.0 after minor bump) and today's date;
+    # one-liner in the body below the header
+    assert "v1.3.0" in changelog
+    assert "clarify step 3" in changelog
+
+
+def test_finalize_changelog_prepends_over_existing(tmp_path):
+    _preload_registry(tmp_path, "my-skill", "1.0.0")
+    target = tmp_path / SKILLS_DIR / "my-skill"
+    target.mkdir(parents=True)
+    (target / "SKILL.md").write_text("old")
+
+    _write_staged_skill(
+        tmp_path, "my-skill",
+        extra_files={"CHANGELOG.md": "## 2026-04-01 — v1.0.0\n- initial\n\n"},
+    )
+    mod.finalize(
+        "my-skill", mode="update", project_dir=tmp_path,
+        changelog="second entry",
+    )
+
+    content = (target / "CHANGELOG.md").read_text()
+    # new entry appears before old entry in the file
+    new_idx = content.index("second entry")
+    old_idx = content.index("initial")
+    assert new_idx < old_idx
+    assert "v1.0.1" in content  # default patch bump
+
+
+def test_finalize_without_changelog_writes_nothing(tmp_path):
+    """No --changelog → CHANGELOG.md is not touched at all."""
+    _preload_registry(tmp_path, "my-skill", "1.0.0")
+    target = tmp_path / SKILLS_DIR / "my-skill"
+    target.mkdir(parents=True)
+    (target / "SKILL.md").write_text("old")
+
+    _write_staged_skill(tmp_path, "my-skill")
+    mod.finalize("my-skill", mode="update", project_dir=tmp_path)
+
+    assert not (target / "CHANGELOG.md").exists()
+
+
+def test_finalize_bump_major_updates_registry(tmp_path):
+    _preload_registry(tmp_path, "my-skill", "1.2.3")
+    target = tmp_path / SKILLS_DIR / "my-skill"
+    target.mkdir(parents=True)
+    (target / "SKILL.md").write_text("old")
+
+    _write_staged_skill(tmp_path, "my-skill")
+    mod.finalize("my-skill", mode="update", project_dir=tmp_path, bump="major")
+
+    entry = _load_registry(tmp_path)["skills"][0]
+    assert entry["version"] == "2.0.0"
+
+
+def test_main_passes_changelog_and_bump(tmp_path, capsys):
+    _preload_registry(tmp_path, "my-skill", "1.0.0")
+    target = tmp_path / SKILLS_DIR / "my-skill"
+    target.mkdir(parents=True)
+    (target / "SKILL.md").write_text("old")
+
+    _write_staged_skill(tmp_path, "my-skill")
+    rc = mod.main([
+        "my-skill",
+        "--mode", "update",
+        "--project-dir", str(tmp_path),
+        "--changelog", "fixed a bug",
+        "--bump", "minor",
+    ])
+    assert rc == 0
+    changelog = (target / "CHANGELOG.md").read_text()
+    assert "v1.1.0" in changelog and "fixed a bug" in changelog
+
+
 # ── CLI ─────────────────────────────────────────────────────────────
 
 

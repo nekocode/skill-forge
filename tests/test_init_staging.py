@@ -43,11 +43,21 @@ def test_validate_name_rejects(name):
 # ── prepare: create mode ────────────────────────────────────────────
 
 
-def test_prepare_create_empty(tmp_path):
+def test_prepare_create_writes_skeleton(tmp_path):
     target = mod.prepare("my-skill", project_dir=tmp_path)
     assert target == staging_dir(tmp_path) / "my-skill"
     assert target.is_dir()
-    assert list(target.iterdir()) == []
+    skill_md = target / "SKILL.md"
+    assert skill_md.is_file()
+    content = skill_md.read_text()
+    # Frontmatter anchors + three-clause stubs + empty section headers
+    # — what Claude fills via Edit rather than authoring from scratch.
+    assert "name: my-skill" in content
+    assert "Use when" in content and "Do NOT use when" in content
+    assert "## Prerequisites" in content
+    assert "## Steps" in content
+    assert "## Verification" in content
+    assert "## Notes" in content
 
 
 def test_prepare_create_wipes_existing(tmp_path):
@@ -57,6 +67,8 @@ def test_prepare_create_wipes_existing(tmp_path):
     result = mod.prepare("my-skill", project_dir=tmp_path)
     assert result.is_dir()
     assert not (result / "stale.md").exists()
+    # skeleton regenerated
+    assert (result / "SKILL.md").is_file()
 
 
 # ── prepare: improve mode (seeded from source) ──────────────────────

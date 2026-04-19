@@ -13,6 +13,7 @@ import subprocess
 import sys
 import threading
 import time
+from datetime import date
 from pathlib import Path
 
 # ── path constants ───────────────────────────────────────
@@ -138,19 +139,27 @@ def save_registry(registry: dict, path: Path = REGISTRY_FILE) -> None:
     path.write_text(json.dumps(registry, indent=2))
 
 
-def bump_version(v: str) -> str:
-    """Bump patch version. Malformed input → '1.0.0'.
+_BUMP_PARTS = ("major", "minor", "patch")
 
-    Bumps the last dotted segment (patch). Returns '1.0.0' on any parse
-    error so a bad entry can't stop an upsert — we'd rather overwrite
-    garbage than crash the PostToolUse hook.
+
+def bump_version(v: str, part: str = "patch") -> str:
+    """Bump semantic version segment. Malformed input → '1.0.0'.
+
+    part: 'patch' (default), 'minor', or 'major'. Minor/major zero the
+    lower segments. Returns '1.0.0' on any parse error — better to
+    overwrite garbage than crash a hook.
     """
-    parts = v.split(".")
+    if part not in _BUMP_PARTS:
+        raise ValueError(f"part must be one of {_BUMP_PARTS}, got {part!r}")
     try:
-        parts[-1] = str(int(parts[-1]) + 1)
+        major, minor, patch = (int(x) for x in v.split("."))
     except Exception:
-        parts = ["1", "0", "0"]
-    return ".".join(parts)
+        return "1.0.0"
+    if part == "major":
+        return f"{major + 1}.0.0"
+    if part == "minor":
+        return f"{major}.{minor + 1}.0"
+    return f"{major}.{minor}.{patch + 1}"
 
 
 def upsert_skill(
@@ -158,37 +167,35 @@ def upsert_skill(
     fm: dict,
     scope: str,
     eval_score: int | None = None,
-) -> None:
+    bump: str = "patch",
+) -> str:
     """Register a new skill or update an existing entry.
 
-    name/description read from the parsed frontmatter dict `fm` to avoid
-    redundant params. On update, bumps the patch version — every persisted
-    write represents a new generation even if the user only tweaked prose.
+    bump selects which segment to increment on update ('patch', 'minor',
+    'major'). New entries always start at '1.0.0' regardless. Returns the
+    resulting version string so callers can feed it into a CHANGELOG
+    header without re-reading the registry.
 
-    eval_score: session evaluator score (0..8). None preserves the existing
-    value on update and defaults to 0 on insert. Callers typically pass the
-    popped `pending_eval_score` from state.json (set by record_eval_score.py
-    right before the skill write).
+    eval_score: session evaluator score (0..8). None preserves the
+    existing value on update and defaults to 0 on insert.
     """
-    from datetime import date  # local import: keeps module import cheap
-
     name = fm["name"]
     desc_chars = len(fm.get("description", ""))
     today = date.today().isoformat()
-    # user-invocable defaults true; auto_trigger mirrors it
     auto_trigger = str(fm.get("user-invocable", "true")).lower() != "false"
 
     for entry in registry["skills"]:
         if entry["name"] == name:
+            new_version = bump_version(entry.get("version", "1.0.0"), bump)
             entry.update({
                 "updated": today,
                 "description_chars": desc_chars,
-                "version": bump_version(entry.get("version", "1.0.0")),
+                "version": new_version,
                 "auto_trigger": auto_trigger,
             })
             if eval_score is not None:
                 entry["eval_score"] = eval_score
-            return
+            return new_version
 
     registry["skills"].append({
         "name": name,
@@ -201,6 +208,7 @@ def upsert_skill(
         "eval_score": eval_score if eval_score is not None else 0,
         "usage_count": 0,
     })
+    return "1.0.0"
 
 
 # ── Subprocess ─────────────────────────────────────────

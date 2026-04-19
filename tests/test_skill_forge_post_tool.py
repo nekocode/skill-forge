@@ -75,30 +75,34 @@ def _existing_entry(name: str = "my-skill", version: str = "1.0.0") -> dict:
 class TestBumpVersion:
     """Version bump logic."""
 
-    def test_normal_semver(self) -> None:
-        """standard semver -> patch +1."""
+    def test_patch_default(self) -> None:
+        """default bump is patch on major.minor.patch input."""
         assert bump_version("1.0.0") == "1.0.1"
         assert bump_version("2.3.9") == "2.3.10"
         assert bump_version("0.0.0") == "0.0.1"
 
-    def test_two_part_version(self) -> None:
-        """two-part version -> last segment +1."""
-        assert bump_version("1.0") == "1.1"
+    def test_minor_bump_zeroes_patch(self) -> None:
+        assert bump_version("1.2.3", "minor") == "1.3.0"
+        assert bump_version("0.0.9", "minor") == "0.1.0"
 
-    def test_single_part_version(self) -> None:
-        """single-part version -> +1."""
-        assert bump_version("5") == "6"
+    def test_major_bump_zeroes_minor_and_patch(self) -> None:
+        assert bump_version("1.2.3", "major") == "2.0.0"
+        assert bump_version("0.9.9", "major") == "1.0.0"
 
-    def test_malformed_non_numeric(self) -> None:
-        """last segment non-numeric -> fallback to 1.0.0."""
+    def test_invalid_part_raises(self) -> None:
+        """unknown segment name is a caller bug, not a silent fallback."""
+        import pytest
+        with pytest.raises(ValueError):
+            bump_version("1.0.0", "build")
+
+    def test_non_semver_input_falls_back(self) -> None:
+        """input must be major.minor.patch (three numeric segments) —
+        anything else is garbage from an external writer and collapses
+        to 1.0.0 rather than crashing downstream."""
+        assert bump_version("1.0") == "1.0.0"
+        assert bump_version("5") == "1.0.0"
         assert bump_version("1.0.abc") == "1.0.0"
-
-    def test_malformed_empty(self) -> None:
-        """empty string -> fallback to 1.0.0."""
         assert bump_version("") == "1.0.0"
-
-    def test_malformed_garbage(self) -> None:
-        """garbage input -> fallback to 1.0.0."""
         assert bump_version("not-a-version") == "1.0.0"
 
 
@@ -223,6 +227,40 @@ class TestUpsertSkill:
 
         assert registry["skills"][0]["version"] == "1.0.0"  # a unchanged
         assert registry["skills"][1]["version"] == "2.0.1"  # b bumped
+
+    def test_returns_resulting_version_on_insert(self) -> None:
+        """new skill returns '1.0.0' so callers (finalize + CHANGELOG)
+        don't re-read the registry for the version they just wrote."""
+        registry = _make_registry()
+        fm = {"name": "fresh", "description": "x" * 20}
+        assert upsert_skill(registry, fm, "project") == "1.0.0"
+
+    def test_returns_resulting_version_on_update(self) -> None:
+        registry = _make_registry(_existing_entry("my-skill", "1.2.3"))
+        fm = {"name": "my-skill", "description": "x" * 20}
+        assert upsert_skill(registry, fm, "project") == "1.2.4"
+
+    def test_bump_minor_on_existing(self) -> None:
+        registry = _make_registry(_existing_entry("my-skill", "1.2.3"))
+        fm = {"name": "my-skill", "description": "x" * 20}
+        result = upsert_skill(registry, fm, "project", bump="minor")
+        assert result == "1.3.0"
+        assert registry["skills"][0]["version"] == "1.3.0"
+
+    def test_bump_major_on_existing(self) -> None:
+        registry = _make_registry(_existing_entry("my-skill", "1.2.3"))
+        fm = {"name": "my-skill", "description": "x" * 20}
+        result = upsert_skill(registry, fm, "project", bump="major")
+        assert result == "2.0.0"
+        assert registry["skills"][0]["version"] == "2.0.0"
+
+    def test_bump_ignored_on_insert(self) -> None:
+        """new skills always start at 1.0.0 — bump affects upgrades only."""
+        registry = _make_registry()
+        fm = {"name": "fresh", "description": "x" * 20}
+        result = upsert_skill(registry, fm, "project", bump="major")
+        assert result == "1.0.0"
+        assert registry["skills"][0]["version"] == "1.0.0"
 
 
 # ── TestValidateSkill ─────────────────────────────────────

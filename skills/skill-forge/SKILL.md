@@ -156,46 +156,25 @@ Promote confirmed patterns to the draft only after review. This separation
 prevents codebase content from being injected into every subsequent tool call
 via the hook.
 
-### Step 3: write SKILL.md into staging
+### Step 3: edit the staged SKILL.md
 
-Write to `.skill-forge/staging/<n>/SKILL.md`. Any bundled helper scripts go
-under `.skill-forge/staging/<n>/scripts/`, CHANGELOG at
-`.skill-forge/staging/<n>/CHANGELOG.md` — build the whole final layout in
-staging so `finalize_skill.py` just copies the tree as-is.
+`init_staging.py` pre-wrote the skeleton at
+`.skill-forge/staging/<n>/SKILL.md` — frontmatter with the three-clause
+description stub and empty Prerequisites / Steps / Verification / Notes
+sections. Use `Edit` to fill content; don't rewrite the layout. Bundled
+helper scripts go under `.skill-forge/staging/<n>/scripts/`. CHANGELOG
+lands at the target via `finalize_skill.py --changelog` in Step 5 — never
+write it by hand in staging.
 
-Use this template:
-
-```markdown
----
-name: 
-description: >
-  
-  Use when .
-  Use when .
-  Even if the user doesn't say "" explicitly, use this skill when
-  they mention .
-  Do NOT use when .
-user-invocable: true
----
-
-# 
-
-
-
-## Prerequisites
-- 
-
-## Steps
-1. 
-2. 
-3. ...
-
-## Verification
-- 
-
-## Notes
-- 
-```
+**Script over prompt for mechanics.** Every skill you design inherits this
+rule: mechanical work — file paths, format templates, date stamps, version
+numbers, JSON schemas, counters — belongs in a helper script, not in
+SKILL.md. Prompt tokens are re-paid on every invocation and drift under
+maintenance; scripts are tested once and stay deterministic. Push every
+fixed-shape step into `scripts/` and leave only intent, judgment, and
+decision criteria in the prompt. If you catch yourself spelling out a
+literal block template, a bump rule, or a schema in prose, stop — move it
+into a script and have the prompt call the script.
 
 ### Description writing rules
 
@@ -333,28 +312,24 @@ tree back, so new `scripts/` entries land in place automatically.
 ### Step 4: finalize (stage → real skill dir)
 
 Re-grade the patched staged draft via the `skill-grader` subagent (same
-agent as create mode — fresh context, independent scoring). Append to
-`.skill-forge/staging/<n>/CHANGELOG.md` with the version bump and a
-one-liner (Write/Edit, not shell heredoc — heredoc shifts hash each
-call and misses any Bash allowlist):
-```
-## <ISO date> — v<bumped>
-- <what changed and why, in one line>
-```
+agent as create mode). Then one command does everything:
 
-Then:
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/skills/skill-forge/scripts/record_eval_score.py" <score>
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/skill-forge/scripts/finalize_skill.py" "<n>" --mode update
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/skill-forge/scripts/finalize_skill.py" "<n>" \
+  --mode update \
+  --changelog "<one-line summary: what changed and why>" \
+  --bump patch   # or: minor (new capability), major (breaking change)
 ```
-`finalize_skill.py --mode update` rmtree's `.claude/skills/<n>/` then
-`shutil.copytree`s staging over. Subprocess file ops bypass the tool
-permission layer, so no prompt even on hidden files. Registry gets
-upserted with the new score, staging gets wiped, and the draft is
-cleared — one call does everything.
 
-**Patch vs rewrite:** Use `Edit` on the staged SKILL.md unless >60% of
-content changes; full rewrite is fine too, same finalize path.
+`finalize_skill.py` copies staging over `.claude/skills/<n>/`, bumps the
+registry version, prepends a dated entry to `CHANGELOG.md` with the
+computed version, consumes the eval score, wipes staging, and clears the
+draft — one subprocess call, zero Claude tool permission prompts. Date,
+version, and entry format are mechanical — never write CHANGELOG by hand.
+
+**Patch vs rewrite:** `Edit` the staged SKILL.md unless >60% of content
+changes; full rewrite is fine too, same finalize path.
 
 ---
 
@@ -376,60 +351,22 @@ Skip if: task < 3 tool calls, pure read-only, or simple single-file edit.
 ## Skill evaluator
 
 Scoring runs in the `skill-grader` subagent — fresh context, no sunk cost in
-the draft, produces calibrated scores. The grader reads the draft file,
-applies the rubric below, and returns a JSON verdict. The main agent does
-*not* self-evaluate.
+the draft, calibrated scores. Main agent does *not* self-evaluate.
 
 Invocation:
 ```
 Agent tool, subagent_type="skill-grader"
-prompt: "Grade draft at <absolute path>. Mode: create|improve. Write verdict to <output path> and echo to stdout."
+prompt: "Grade draft at <absolute path>. Mode: create|improve.
+         Write verdict to <output path> and echo to stdout."
 ```
 
-Verdict schema (`total` is the decision key):
-```json
-{
-  "skill_name": "...",
-  "mode": "create",
-  "scores": {
-    "trigger_quality": {"score": 3, "evidence": "..."},
-    "step_clarity":    {"score": 2, "evidence": "..."},
-    "completeness":    {"score": 2, "evidence": "..."}
-  },
-  "total": 7,
-  "threshold_pass": true,
-  "non_discrimination_flags": ["..."],
-  "suggestions": [{"priority": "high", "category": "steps", "text": "..."}]
-}
-```
+Parse the returned JSON: `total` (int 0–8) is the decision key,
+`threshold_pass` (bool) is true iff `total ≥ 6`. Rubric, scoring dimensions,
+and the full schema live in `agents/skill-grader.md` — single source, don't
+duplicate here.
 
-Rubric (the grader applies this; shown here so users can audit its calls).
-**Keep in sync with `agents/skill-grader.md` — any change here must also go there.**
-
-**Trigger quality (0–3)**
-- 3: three-clause structure complete (Use when / Even if / Do NOT); ≤ 250 chars;
-  front-loaded keywords; no vague verbs; qualified shared keywords.
-- 2: has `Use when` but missing pushy coverage, or `Do NOT use when` too vague.
-- 1: vague, simple verbs, or one-step tasks only. Likely FPs on keyword overlap.
-- 0: no description, or matches everything.
-
-**Step clarity (0–3)**
-- 3: every step concrete; explains WHY not just WHAT.
-- 2: most concrete, 1–2 vague.
-- 1: high-level summaries only.
-- 0: no steps, or contradictory.
-
-**Completeness (0–2)**
-- 2: prerequisites + steps + verification + ≥1 note.
-- 1: missing verification or notes.
-- 0: missing steps.
-
-**Non-discrimination check** — assertion that passes both with and without
-the skill tests Claude's baseline capability, not the skill's value. Grader
-flags these in `non_discrimination_flags` so you sharpen them next improve.
-
-**Threshold:** `total ≥ 6` → write. 4–5 → revise once, ask user. < 4 → show
-breakdown, ask user.
+**Threshold actions:** pass → finalize. 4–5 → revise once, re-grade. < 4
+→ show the grader's `suggestions` and ask user whether to rework or abort.
 
 ---
 

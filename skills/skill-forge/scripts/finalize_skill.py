@@ -36,6 +36,7 @@ from __future__ import annotations
 import argparse
 import shutil
 import sys
+from datetime import date
 from pathlib import Path
 
 from shared import (
@@ -92,16 +93,31 @@ def _validate_mode(mode: str, target: Path) -> None:
 # ── core action ───────────────────────────────────────────────────────
 
 
+def _append_changelog(target: Path, version: str, one_liner: str) -> None:
+    """Prepend a dated entry — newest-first so `head` shows latest."""
+    today = date.today().isoformat()
+    entry = f"## {today} — v{version}\n- {one_liner.strip()}\n\n"
+    path = target / "CHANGELOG.md"
+    path.write_text(entry + path.read_text() if path.is_file() else entry)
+
+
 def finalize(
     name: str,
     mode: str,
     project_dir: Path | None = None,
+    changelog: str | None = None,
+    bump: str = "patch",
 ) -> Path:
     """Move staged skill into place and update the registry.
 
     Returns the target path. Raises on precondition failures (missing
     staging, bad frontmatter, mode mismatch with existing target) — the
     caller should surface the message to the user without retrying.
+
+    changelog: optional one-line entry appended to `<target>/CHANGELOG.md`
+        with today's ISO date and the new version header — moves date /
+        version / format concerns out of the prompt layer.
+    bump: which semver segment to increment on update (default 'patch').
     """
     if project_dir is None:
         project_dir = Path.cwd()
@@ -149,8 +165,13 @@ def finalize(
 
     registry_path = project_dir / SKILLS_DIR / "skill_registry.json"
     registry = load_registry(registry_path)
-    upsert_skill(registry, fm, scope="project", eval_score=pending_score)
+    new_version = upsert_skill(
+        registry, fm, scope="project", eval_score=pending_score, bump=bump,
+    )
     save_registry(registry, registry_path)
+
+    if changelog:
+        _append_changelog(target, new_version, changelog)
 
     # Clear staging — nothing under .skill-forge/staging/<name>/ should
     # outlive a successful finalize; leaving it risks confusing the user
@@ -195,6 +216,17 @@ def main(argv: list[str] | None = None) -> int:
         required=True,
     )
     parser.add_argument(
+        "--changelog",
+        default=None,
+        help="One-line CHANGELOG entry; script adds date and version header.",
+    )
+    parser.add_argument(
+        "--bump",
+        choices=["patch", "minor", "major"],
+        default="patch",
+        help="Which semver segment to increment on update (default: patch).",
+    )
+    parser.add_argument(
         "--project-dir",
         type=Path,
         default=None,
@@ -203,7 +235,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        finalize(args.name, args.mode, project_dir=args.project_dir)
+        finalize(
+            args.name,
+            args.mode,
+            project_dir=args.project_dir,
+            changelog=args.changelog,
+            bump=args.bump,
+        )
     except (FileNotFoundError, FileExistsError, ValueError) as e:
         print(f"[skill-forge] finalize failed: {e}", file=sys.stderr)
         return 1
