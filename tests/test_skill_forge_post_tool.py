@@ -6,10 +6,9 @@ from io import StringIO
 from pathlib import Path
 import pytest
 
+from shared import bump_version, upsert_skill
 from skill_forge_post_tool import (
-    bump_version,
     main,
-    upsert_skill,
     validate_skill,
 )
 

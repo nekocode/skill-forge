@@ -1,7 +1,17 @@
 """Improve mode session initializer.
 
-Copy existing skill's SKILL.md to the active draft workspace file,
-append improve session timestamp header, activate hooks attention loop.
+Two jobs in one script:
+
+  1. Seed staging from the live skill dir — `.claude/skills/<name>/*` →
+     `.skill-forge/staging/<name>/*`. Claude's Edit calls during improve
+     then land in staging, keeping `.claude/` untouched until
+     `finalize_skill.py --mode update` copies the result back atomically.
+  2. Copy the SKILL.md into the active draft workspace file as the
+     attention anchor (the hooks re-read draft.md before every tool
+     call, keeping Claude oriented mid-session).
+
+Unified staging across create and improve means one finalize path for
+both, and no branch where Claude edits a file the user didn't approve.
 """
 
 from __future__ import annotations
@@ -10,7 +20,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-# shared module from same directory
+# same directory — init_staging + shared both sit in scripts/
+from init_staging import prepare as init_staging
 from shared import SKILLS_DIR, draft_file
 
 
@@ -20,17 +31,21 @@ def init_improve_session(
 ) -> bool:
     """Initialize improve session.
 
-    Copy .claude/skills/<name>/SKILL.md to the active draft workspace file,
-    append improve session timestamp.
-
-    Skill not found returns False, no draft created.
+    Seeds staging from the live skill dir and writes the draft. Returns
+    False (no changes) when the target skill doesn't exist — the caller
+    should surface that to the user since there's nothing to improve.
     """
     if project_dir is None:
         project_dir = Path.cwd()
 
-    skill_file = project_dir / SKILLS_DIR / name / "SKILL.md"
+    skill_dir = project_dir / SKILLS_DIR / name
+    skill_file = skill_dir / "SKILL.md"
     if not skill_file.is_file():
         return False
+
+    # Stage first so Edit/Write on the draft never races an unseeded
+    # staging dir. init_staging wipes any stale staging for this name.
+    init_staging(name, source=skill_dir, project_dir=project_dir)
 
     content = skill_file.read_text()
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")

@@ -46,7 +46,8 @@ tar czf "$TARBALL" -C "$ROOT" \
   --exclude='*.pyc' \
   commands/ \
   skills/ \
-  hooks/
+  hooks/ \
+  agents/
 
 echo "  Created: $TARBALL"
 

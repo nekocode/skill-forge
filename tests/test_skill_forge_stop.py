@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from shared import draft_file
 from skill_forge_stop import build_message, main, should_trigger
 
 
@@ -56,6 +57,25 @@ class TestShouldTrigger:
         trigger, reason = should_trigger(state)
         assert trigger is False
         assert reason == ""
+
+    def test_active_draft_suppresses_trigger(self, tmp_path: Path) -> None:
+        """Non-empty draft -> skip trigger (prevents self-looping)."""
+        draft = draft_file(tmp_path)
+        draft.parent.mkdir(parents=True, exist_ok=True)
+        draft.write_text("# work-in-progress-skill\n## Phase\nresearch\n")
+        state = {"tool_calls": 99}  # well over threshold
+        trigger, reason = should_trigger(state, project_dir=tmp_path)
+        assert trigger is False
+        assert reason == "active draft"
+
+    def test_empty_draft_does_not_suppress(self, tmp_path: Path) -> None:
+        """Empty draft (post-finalize) -> still trigger on high tool count."""
+        draft = draft_file(tmp_path)
+        draft.parent.mkdir(parents=True, exist_ok=True)
+        draft.write_text("")
+        state = {"tool_calls": 10}
+        trigger, _ = should_trigger(state, project_dir=tmp_path)
+        assert trigger is True
 
 
 # ── TestBuildMessage ──────────────────────────────────

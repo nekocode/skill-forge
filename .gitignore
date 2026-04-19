@@ -1,6 +1,7 @@
 /target
 *.local.md
 .claude/
+.skill-forge/
 task_plan.md
 findings.md
 progress.md

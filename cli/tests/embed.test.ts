@@ -24,7 +24,7 @@ import {
   rewriteContentPaths,
   rewriteCommandContent,
 } from "../src/commands/embed.js";
-import { embedCommandName, EMBED_COMMANDS } from "../src/types.js";
+import { embedCommandName, EMBED_AGENTS, EMBED_COMMANDS } from "../src/types.js";
 
 const mockExecSync = vi.mocked(execSync);
 
@@ -336,6 +336,15 @@ describe("removeEmbedFiles", () => {
     // User command file
     fs.writeFileSync(path.join(commandsDir, "my-command.md"), "user");
 
+    // SF agents (skill-grader, etc)
+    const agentsDir = path.join(root, ".claude", "agents");
+    fs.mkdirSync(agentsDir, { recursive: true });
+    for (const file of EMBED_AGENTS) {
+      fs.writeFileSync(path.join(agentsDir, file), `# ${file}`);
+    }
+    // User agent file (should survive uninstall)
+    fs.writeFileSync(path.join(agentsDir, "user-helper.md"), "user");
+
     // SF skills dir
     const sfSkills = path.join(root, ".claude", "skills", "skill-forge");
     fs.mkdirSync(sfSkills, { recursive: true });
@@ -390,6 +399,17 @@ describe("removeEmbedFiles", () => {
     expect(fs.existsSync(path.join(commandsDir, embedCommandName("create.md")))).toBe(false);
     expect(fs.existsSync(path.join(commandsDir, embedCommandName("improve.md")))).toBe(false);
     expect(fs.existsSync(path.join(commandsDir, "my-command.md"))).toBe(true);
+  });
+
+  it("removes SF agents but keeps user agents", () => {
+    setupFullEmbed(tmpDir);
+    removeEmbedFiles(tmpDir);
+
+    const agentsDir = path.join(tmpDir, ".claude", "agents");
+    for (const file of EMBED_AGENTS) {
+      expect(fs.existsSync(path.join(agentsDir, file))).toBe(false);
+    }
+    expect(fs.existsSync(path.join(agentsDir, "user-helper.md"))).toBe(true);
   });
 
   it("removes .claude/skills/skill-forge/ directory", () => {
@@ -541,6 +561,16 @@ describe("embedInstall", () => {
       '# skill\npython3 "${CLAUDE_PLUGIN_ROOT}/skills/skill-forge/scripts/phase0_load.py"\n',
     );
 
+    // agents/ — bundled subagents (skill-grader, etc)
+    const agentsDir = path.join(extractDir, "agents");
+    fs.mkdirSync(agentsDir, { recursive: true });
+    for (const file of EMBED_AGENTS) {
+      fs.writeFileSync(
+        path.join(agentsDir, file),
+        '---\nname: grader\n---\n# body\npython3 "${CLAUDE_PLUGIN_ROOT}/skills/skill-forge/scripts/shared.py"\n',
+      );
+    }
+
     // hooks/
     const hooksDir = path.join(extractDir, "hooks");
     fs.mkdirSync(hooksDir, { recursive: true });
@@ -620,6 +650,15 @@ describe("embedInstall", () => {
 
     // skills/skill-forge installed
     expect(fs.existsSync(path.join(tmpDir, ".claude", "skills", "skill-forge", "SKILL.md"))).toBe(true);
+
+    // agents installed + path vars rewritten to relative form
+    for (const file of EMBED_AGENTS) {
+      const agentPath = path.join(tmpDir, ".claude", "agents", file);
+      expect(fs.existsSync(agentPath)).toBe(true);
+      const agentBody = fs.readFileSync(agentPath, "utf-8");
+      expect(agentBody).toContain(".claude/skills/skill-forge/");
+      expect(agentBody).not.toContain("${CLAUDE_PLUGIN_ROOT}");
+    }
 
     // hooks installed
     expect(

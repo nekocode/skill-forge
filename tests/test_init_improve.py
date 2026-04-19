@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from init_improve import init_improve_session, main
-from shared import draft_file
+from shared import draft_file, staging_dir
 
 
 # ── TestInitImproveSession ─────────────────────────────
@@ -52,6 +52,43 @@ class TestInitImproveSession:
 
         init_improve_session("test", project_dir=tmp_path)
         assert draft_file(tmp_path).exists()
+
+    def test_seeds_staging_from_live_skill(self, tmp_path: Path) -> None:
+        """Live skill dir contents mirror into staging for atomic edits."""
+        skill_dir = tmp_path / ".claude" / "skills" / "my-skill"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text("# body\n")
+        scripts = skill_dir / "scripts"
+        scripts.mkdir()
+        (scripts / "helper.py").write_text("x = 1\n")
+
+        init_improve_session("my-skill", project_dir=tmp_path)
+
+        staged = staging_dir(tmp_path) / "my-skill"
+        assert (staged / "SKILL.md").read_text() == "# body\n"
+        assert (staged / "scripts" / "helper.py").read_text() == "x = 1\n"
+
+    def test_staging_wiped_on_reinit(self, tmp_path: Path) -> None:
+        """Re-running init_improve clears stale staging from a prior attempt."""
+        skill_dir = tmp_path / ".claude" / "skills" / "my-skill"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text("new\n")
+
+        # pre-existing stale file under staging
+        staged = staging_dir(tmp_path) / "my-skill"
+        staged.mkdir(parents=True)
+        (staged / "stale.md").write_text("should vanish")
+
+        init_improve_session("my-skill", project_dir=tmp_path)
+
+        assert not (staged / "stale.md").exists()
+        assert (staged / "SKILL.md").read_text() == "new\n"
+
+    def test_missing_skill_does_not_touch_staging(self, tmp_path: Path) -> None:
+        """Failure exit leaves staging dir untouched (no partial state)."""
+        result = init_improve_session("nope", project_dir=tmp_path)
+        assert result is False
+        assert not (staging_dir(tmp_path) / "nope").exists()
 
 
 # ── TestMain ───────────────────────────────────────────

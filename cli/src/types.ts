@@ -36,6 +36,10 @@ export const GITHUB_REPO = "nekocode/skill-forge";
 export const EMBED_VERSION_FILE = ".claude/hooks/skill-forge/version.json";
 export const EMBED_HOOKS_DIR = ".claude/hooks/skill-forge";
 export const EMBED_COMMANDS = ["scan.md", "create.md", "improve.md", "rename.md"];
+// Subagent files bundled with skill-forge. Each lands in `.claude/agents/`
+// verbatim — the skill-forge prefix in the filename keeps them namespaced
+// so uninstall can match them without a registry lookup.
+export const EMBED_AGENTS = ["skill-grader.md"];
 
 // Prefix applied to command filenames during embed install so they appear
 // as /skill-forge-scan instead of bare /scan in project scope.

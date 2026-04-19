@@ -1,7 +1,7 @@
 """Create mode draft initializer.
 
-Generate the active draft file (under ~/.skill-forge/<slug>/) from name and goal,
-serving as the attention anchor file for hooks.
+Generate the active draft file (under `<project>/.skill-forge/`) from name
+and goal, serving as the attention anchor file for hooks.
 """
 
 from __future__ import annotations

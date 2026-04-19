@@ -12,6 +12,7 @@ import {
   EMBED_VERSION_FILE,
   EMBED_HOOKS_DIR,
   EMBED_COMMANDS,
+  EMBED_AGENTS,
   embedCommandName,
 } from "../types.js";
 
@@ -152,6 +153,12 @@ export function removeEmbedFiles(projectRoot: string): void {
     fs.rmSync(path.join(commandsDir, embedCommandName(file)), { force: true });
   }
 
+  // Remove bundled subagents (skill-grader, etc)
+  const agentsDir = path.join(projectRoot, ".claude", "agents");
+  for (const file of EMBED_AGENTS) {
+    fs.rmSync(path.join(agentsDir, file), { force: true });
+  }
+
   // Remove SF skills dir
   const sfSkillsDir = path.join(projectRoot, ".claude", "skills", "skill-forge");
   fs.rmSync(sfSkillsDir, { recursive: true, force: true });
@@ -287,6 +294,27 @@ export function embedInstall(projectRoot: string, tag?: string): string {
       if (fs.existsSync(skillMdPath)) {
         const content = fs.readFileSync(skillMdPath, "utf-8");
         fs.writeFileSync(skillMdPath, rewriteContentPaths(content));
+      }
+    }
+
+    // Copy agents/*.md → .claude/agents/
+    // Subagents go in the user's own agents dir (not a namespaced subfolder)
+    // because Claude Code's Agent tool looks them up by filename root, not
+    // by path. The skill-forge-prefixed file names keep them identifiable
+    // on uninstall without needing a registry lookup.
+    const srcAgentsDir = path.join(extractRoot, "agents");
+    const destAgentsDir = path.join(projectRoot, ".claude", "agents");
+    if (fs.existsSync(srcAgentsDir)) {
+      fs.mkdirSync(destAgentsDir, { recursive: true });
+      for (const file of EMBED_AGENTS) {
+        const src = path.join(srcAgentsDir, file);
+        if (fs.existsSync(src)) {
+          const content = fs.readFileSync(src, "utf-8");
+          fs.writeFileSync(
+            path.join(destAgentsDir, file),
+            rewriteContentPaths(content),
+          );
+        }
       }
     }
 

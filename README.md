@@ -54,15 +54,19 @@ Run `skill-forge doctor` to verify your environment.
 
 ### Dual-File Security Model
 
-External content (grep/glob/read output) goes to `~/.skill-forge/<slug>/insights.md` (low trust, hooks don't read it). Only after validation does content get promoted to `~/.skill-forge/<slug>/draft.md` (high trust, injected by hooks). This prevents prompt injection amplification. Workspace lives in `$HOME` (outside `.claude/`) so Write/Edit is prompt-free even in plugin mode where the project has no local `.claude/skills/skill-forge/SKILL.md` — the `.claude/` trust boundary only exempts real skill dirs. The `<slug>` mirrors `~/.claude/projects/` naming (`/Users/x/p` → `-Users-x-p`).
+External content (grep/glob/read output) goes to `.skill-forge/insights.md` (low trust, hooks don't read it). Only after validation does content get promoted to `.skill-forge/draft.md` (high trust, injected by hooks). This prevents prompt injection amplification. Workspace lives at project-local `./.skill-forge/` — outside `.claude/` entirely, so write permissions don't need the trust-boundary exemption and Python/shell both resolve the same absolute path without any slug-translation step.
+
+### Staging + Finalize
+
+New skills are assembled in `.skill-forge/staging/<name>/` (SKILL.md, scripts/, CHANGELOG, .opt/). `finalize_skill.py` then runs `shutil.copytree` in a subprocess to move the tree into `.claude/skills/<name>/` — bypassing Claude's tool permission layer, which would otherwise prompt on any Write into a not-yet-real skill dir (empty dirs fail the trust-boundary exemption until a SKILL.md lands). Improve mode uses the same staging path: `init_improve.py` copies the live skill into staging, Claude edits there, and `finalize --mode update` rmtree's the target and copies staging back atomically.
 
 ### Hooks Architecture
 
-**Skill-scoped hooks** (SKILL.md frontmatter) — only active when skill-forge is engaged:
+**Skill-scoped hooks** (SKILL.md frontmatter) — only active when skill-forge is engaged. All four run via one Python entrypoint (`hook_draft_inject.py` / `skill_check.py`) for cross-platform consistency:
 - `UserPromptSubmit` — Inject draft header into attention window
-- `PreToolUse` — Re-read draft before each tool call (prevent goal drift)
-- `PostToolUse` — Prompt draft status update after Write/Edit
-- `Stop` — Check for unprocessed skill opportunities
+- `PreToolUse` — Small draft-head dump before Read/Glob/Grep/Bash (goal-drift guard)
+- `PostToolUse` — Nudge draft update after Write/Edit
+- `Stop` — Check for unprocessed skill opportunities (skipped when a draft is active, to prevent self-looping)
 
 **Global hooks** (`hooks/hooks.json`, auto-registered by plugin system):
 - `SessionStart` — Reset counters + inject skill inventory

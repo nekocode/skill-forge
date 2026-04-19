@@ -12,7 +12,6 @@ This hook never blocks (no exit 2). It's a side-effect hook.
 
 import json
 import sys
-from datetime import date
 from pathlib import Path
 
 # Bootstrap: resolve scripts path from shared _bootstrap.py (avoids duplication)
@@ -27,51 +26,11 @@ from shared import (  # noqa: E402
     parse_frontmatter,
     save_registry,
     save_state,
+    upsert_skill,
 )
 from quick_validate import validate_skill as structural_validate  # noqa: E402
 
 REQUIRED_FRONTMATTER = {"name", "description"}
-
-
-# ── Registry helpers ─────────────────────────────────────────────────────────
-
-
-def upsert_skill(registry: dict, fm: dict, scope: str, eval_score: int | None = None):
-    """Register or update a skill. name/description derived from fm to reduce param redundancy.
-
-    eval_score: session evaluator score (0..8). None preserves existing on update,
-    defaults to 0 on insert. Hook passes the consumed pending_eval_score from state.json.
-    """
-    name = fm["name"]
-    desc_chars = len(fm.get("description", ""))
-    today = date.today().isoformat()
-    # user-invocable defaults true; auto_trigger mirrors it
-    auto_trigger = str(fm.get("user-invocable", "true")).lower() != "false"
-    for entry in registry["skills"]:
-        if entry["name"] == name:
-            entry.update({"updated": today, "description_chars": desc_chars,
-                          "version": bump_version(entry.get("version", "1.0.0")),
-                          "auto_trigger": auto_trigger})
-            if eval_score is not None:
-                entry["eval_score"] = eval_score
-            return
-    registry["skills"].append({
-        "name": name, "version": "1.0.0", "scope": scope,
-        "created": today, "updated": today,
-        "auto_trigger": auto_trigger,
-        "description_chars": desc_chars,
-        "eval_score": eval_score if eval_score is not None else 0,
-        "usage_count": 0,
-    })
-
-
-def bump_version(v: str) -> str:
-    parts = v.split(".")
-    try:
-        parts[-1] = str(int(parts[-1]) + 1)
-    except Exception:
-        parts = ["1", "0", "0"]
-    return ".".join(parts)
 
 
 # ── Validation ───────────────────────────────────────────────────────────────

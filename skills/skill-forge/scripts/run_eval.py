@@ -47,9 +47,11 @@ def find_project_root(start: Path | None = None) -> Path:
     when no `.claude/` is found upward (caller's own cwd assumption wins).
 
     Uses os.path.abspath (not Path.resolve) to avoid symlink expansion.
-    On macOS, /tmp → /private/tmp under resolve, which would diverge from
-    the slug conventions in shared.cwd_slug and the shell-hook slug logic.
-    See LEARNED.local.md 'workspace / state 类运行时产物' section.
+    On macOS, `/tmp` → `/private/tmp` under resolve, which changes the
+    recorded project root across processes and breaks anything that
+    assumes a stable string path (command file cleanup races, log
+    correlation). Shell hooks don't canonicalize either — keeping the
+    Python side literal keeps the two aligned.
     """
     start_path = start or Path.cwd()
     current = Path(os.path.abspath(str(start_path)))

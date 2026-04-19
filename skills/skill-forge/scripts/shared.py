@@ -21,56 +21,43 @@ SKILLS_DIR = Path(".claude/skills")
 USER_SKILLS_DIR = Path.home() / ".claude" / "skills"
 REGISTRY_FILE = SKILLS_DIR / "skill_registry.json"
 
-# Workspace lives OUTSIDE `.claude/` entirely. Claude Code's trust boundary
-# only exempts `.claude/commands/**`, `.claude/agents/**`, and real skill
-# dirs (those containing SKILL.md). In plugin mode the project has no
-# `.claude/skills/skill-forge/SKILL.md`, so nesting workspace under
-# `.claude/skills/skill-forge/.workspace/` was still prompting on Write.
-# Putting it in $HOME sidesteps the boundary. Per-project isolation uses
-# Claude Code's own slug convention (matches ~/.claude/projects/<slug>/)
-# so the same project's workspace is stable across sessions.
+# Workspace lives at `<project_dir>/.skill-forge/` — project-local, outside
+# `.claude/` entirely. The `.claude/` trust boundary only exempts real skill
+# dirs (those with SKILL.md), `.claude/commands/`, and `.claude/agents/`,
+# so any workspace nested under `.claude/` still prompts on Write in plugin
+# installs where the local SKILL.md is absent. A sibling dir at project
+# root has no such constraint. This also kills a whole class of Python /
+# shell slug-algorithm drift bugs: both sides now resolve the same
+# absolute path with no stringification step.
 WORKSPACE_DIR_NAME = ".skill-forge"
-_DEFAULT_WORKSPACE_ROOT = Path.home() / WORKSPACE_DIR_NAME
 _WORKSPACE_ROOT_ENV = "SKILL_FORGE_WORKSPACE_ROOT"
 
 
-def _workspace_root() -> Path:
-    """Resolve workspace root. Env override wins (tests)."""
+def workspace_dir(project_dir: Path | None = None) -> Path:
+    """Per-project workspace dir at `<project_dir>/.skill-forge/`.
+
+    Env override `SKILL_FORGE_WORKSPACE_ROOT` wins — tests point it at
+    tmp_path to keep draft/insights/state out of the real project tree.
+    When set, the override is THE workspace dir (not a root above it).
+    None `project_dir` falls back to cwd.
+    """
     override = os.environ.get(_WORKSPACE_ROOT_ENV)
     if override:
         return Path(override)
-    return _DEFAULT_WORKSPACE_ROOT
-
-
-def cwd_slug(project_dir: Path) -> str:
-    """Absolute project path → slug (Claude Code convention).
-
-    /Users/x/proj → -Users-x-proj. Matches ~/.claude/projects/ naming so the
-    same project's workspace is discoverable by humans grepping both trees.
-
-    Uses os.path.abspath (not Path.resolve) so symlinks stay unresolved —
-    matches the shell-hook slug which runs `tr '/' '-'` on $PWD /
-    $CLAUDE_PROJECT_DIR without canonicalization. On macOS, /tmp vs
-    /private/tmp would otherwise yield different slugs between the hook and
-    the Python helpers, silently breaking draft injection.
-    """
-    absolute = os.path.abspath(str(project_dir))
-    # Strip trailing slash so `/proj` and `/proj/` yield the same slug, mirroring
-    # the shell hook which does `ROOT="${ROOT%/}"` before slugging.
-    if absolute != "/" and absolute.endswith("/"):
-        absolute = absolute.rstrip("/")
-    return absolute.replace("/", "-")
-
-
-def workspace_dir(project_dir: Path | None = None) -> Path:
-    """Per-project workspace dir under the workspace root.
-
-    None falls back to cwd — callers in tests should always pass explicitly to
-    avoid the tmp-vs-home leak caught by pytest.
-    """
     if project_dir is None:
         project_dir = Path.cwd()
-    return _workspace_root() / cwd_slug(project_dir)
+    return Path(project_dir) / WORKSPACE_DIR_NAME
+
+
+def staging_dir(project_dir: Path | None = None) -> Path:
+    """Staging root `<workspace>/staging/`.
+
+    New skills and in-progress improve edits assemble here first, then
+    `finalize_skill.py` copies them into `.claude/skills/<name>/` via a
+    Python subprocess — bypassing Claude's tool permission layer, which
+    would otherwise prompt on any Write into a not-yet-real skill dir.
+    """
+    return workspace_dir(project_dir) / "staging"
 
 
 def draft_file(project_dir: Path | None = None) -> Path:
@@ -149,6 +136,71 @@ def save_registry(registry: dict, path: Path = REGISTRY_FILE) -> None:
     """Write skill registry. Auto-creates parent directory."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(registry, indent=2))
+
+
+def bump_version(v: str) -> str:
+    """Bump patch version. Malformed input → '1.0.0'.
+
+    Bumps the last dotted segment (patch). Returns '1.0.0' on any parse
+    error so a bad entry can't stop an upsert — we'd rather overwrite
+    garbage than crash the PostToolUse hook.
+    """
+    parts = v.split(".")
+    try:
+        parts[-1] = str(int(parts[-1]) + 1)
+    except Exception:
+        parts = ["1", "0", "0"]
+    return ".".join(parts)
+
+
+def upsert_skill(
+    registry: dict,
+    fm: dict,
+    scope: str,
+    eval_score: int | None = None,
+) -> None:
+    """Register a new skill or update an existing entry.
+
+    name/description read from the parsed frontmatter dict `fm` to avoid
+    redundant params. On update, bumps the patch version — every persisted
+    write represents a new generation even if the user only tweaked prose.
+
+    eval_score: session evaluator score (0..8). None preserves the existing
+    value on update and defaults to 0 on insert. Callers typically pass the
+    popped `pending_eval_score` from state.json (set by record_eval_score.py
+    right before the skill write).
+    """
+    from datetime import date  # local import: keeps module import cheap
+
+    name = fm["name"]
+    desc_chars = len(fm.get("description", ""))
+    today = date.today().isoformat()
+    # user-invocable defaults true; auto_trigger mirrors it
+    auto_trigger = str(fm.get("user-invocable", "true")).lower() != "false"
+
+    for entry in registry["skills"]:
+        if entry["name"] == name:
+            entry.update({
+                "updated": today,
+                "description_chars": desc_chars,
+                "version": bump_version(entry.get("version", "1.0.0")),
+                "auto_trigger": auto_trigger,
+            })
+            if eval_score is not None:
+                entry["eval_score"] = eval_score
+            return
+
+    registry["skills"].append({
+        "name": name,
+        "version": "1.0.0",
+        "scope": scope,
+        "created": today,
+        "updated": today,
+        "auto_trigger": auto_trigger,
+        "description_chars": desc_chars,
+        "eval_score": eval_score if eval_score is not None else 0,
+        "usage_count": 0,
+    })
 
 
 # ── Subprocess ─────────────────────────────────────────
