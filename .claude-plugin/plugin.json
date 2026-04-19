@@ -1,6 +1,6 @@
 {
   "name": "skill-forge",
-  "version": "0.7.4",
+  "version": "0.8.0",
   "description": "Self-evolving skills system — creates, discovers, iterates, and optimizes Claude Code skills.",
   "author": {
     "name": "nekocode",
