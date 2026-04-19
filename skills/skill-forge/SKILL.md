@@ -5,7 +5,6 @@ description: >
   create from workflows, iterate with eval-driven optimization. Activates on "remember this"
   or after complex tasks (5+ tool calls). Not for one-off tasks.
 user-invocable: true
-allowed-tools: Read, Write, Edit, Bash, Glob, Grep, LS
 
 hooks:
   UserPromptSubmit:
@@ -175,7 +174,6 @@ description: >
   they mention .
   Do NOT use when .
 user-invocable: true
-allowed-tools: [only tools this skill actually needs]
 ---
 
 # 
